@@ -1,0 +1,26 @@
+/*
+ * Application stylesheet entry point (task 14.2).
+ *
+ * `main.tsx` imports this single file, so it is the one CSS entry for both the
+ * dev server and the production build. It pulls in the design system in the
+ * required order:
+ *
+ *   1. tokens.css  — CSS custom properties (colours, --touch, safe-area insets,
+ *                    content width) for the light and dark themes. Must come
+ *                    first so every rule in layout.css can resolve its var()s.
+ *   2. layout.css  — mobile-first base layout, component classes and the single
+ *                    768px responsive breakpoint, built only on those tokens.
+ *
+ * `@import` is resolved at build time by Vite, which inlines and bundles both
+ * files into one hashed stylesheet emitted next to the JS. The Workbox precache
+ * glob (`**\/*.css` in vite.config.ts) therefore lists the emitted CSS, so the
+ * theme and layout are available offline after the first load.
+ *
+ * All presentation lives in these external files: no inline `style` attributes
+ * and no injected <style> tags anywhere in the app, so the strict CSP
+ * (`style-src 'self'`) is satisfied. The two <meta name="theme-color"> values
+ * in index.html (light #1f6feb, dark #0d1117) mirror the token theme colours.
+ */
+
+@import './ui/styles/tokens.css';
+@import './ui/styles/layout.css';

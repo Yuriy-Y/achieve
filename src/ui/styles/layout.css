@@ -1,0 +1,1073 @@
+/*
+ * layout.css — Achievement Tracker base layout and structural/utility classes.
+ *
+ * Mobile-first. Uses only the tokens from tokens.css. No inline styles are used
+ * anywhere in the app (CSP style-src 'self'); all presentation lives in CSS
+ * files. The single responsive breakpoint is WIDE_VIEWPORT_MIN_PX = 768px
+ * (Req 5.12–5.15, 11.1, 11.8). Every interactive control is at least
+ * 44×44 CSS px (--touch, Req 11.2). The shell honours the safe-area insets
+ * (Req 11.7) and the content column is capped at --content-max-width (Req 11.8).
+ */
+
+/* ===================================================================== *
+ * Reset / base
+ * ===================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: var(--line-height-tight);
+  font-weight: var(--font-weight-bold);
+}
+
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Base control sizing: everything tappable meets the 44px Touch_Target
+   minimum (Req 11.2) and never overflows a 320px viewport (Req 11.1). */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  min-height: var(--touch);
+  min-width: var(--touch);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-raised);
+  color: var(--color-text);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--color-surface);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  min-height: var(--touch);
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+/* Visible focus for keyboard and desktop operability (Req 11.8). */
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ===================================================================== *
+ * Utilities
+ * ===================================================================== */
+
+/* Screen-reader-only content (labels, headings) kept out of the visual flow. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===================================================================== *
+ * App shell (Req 11.1, 11.7, 11.8)
+ * ===================================================================== */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Keep all content and controls inside the device safe-area insets. */
+  padding:
+    var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+
+.app-header {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.app-title {
+  font-size: var(--font-size-xl);
+}
+
+.app-main {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: 0 var(--space-4) var(--space-6);
+  /* Let flex children shrink and long words wrap so 320px never scrolls. */
+  min-width: 0;
+}
+
+.app-main > * {
+  min-width: 0;
+}
+
+.app-loading {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.app-loading-message {
+  margin: 0;
+}
+
+/* ===================================================================== *
+ * Activity list / rows (Req 2.2–2.5)
+ * ===================================================================== */
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.activity-list-empty {
+  align-items: center;
+  text-align: center;
+  padding: var(--space-6) var(--space-2);
+  gap: var(--space-4);
+}
+
+.activity-list-empty-message {
+  color: var(--color-text-muted);
+}
+
+.activity-list-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.activity-list-create {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-weight: var(--font-weight-medium);
+}
+
+.activity-list-create:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.activity-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.activity-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface-raised);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-3);
+}
+
+.activity-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.activity-row-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-weight: var(--font-weight-medium);
+  /* Long activity names wrap instead of forcing horizontal scroll (Req 11.1). */
+  overflow-wrap: anywhere;
+}
+
+.activity-row-today {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-bold);
+}
+
+.activity-row-goals {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.activity-row-goal {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  font-size: var(--font-size-sm);
+}
+
+.activity-row-goal-type {
+  color: var(--color-text-muted);
+}
+
+.activity-row-goal-progress {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-medium);
+}
+
+.activity-row-goal-status {
+  color: var(--color-text-muted);
+}
+
+.activity-row-actions {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.activity-row-action {
+  flex: 1 1 auto;
+}
+
+.activity-row-delete {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* ===================================================================== *
+ * Quick entry (Req 11.5, 11.6)
+ * ===================================================================== */
+
+.quick-entry {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.quick-entry-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.quick-entry-save {
+  flex: 1 1 auto;
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.quick-entry-save:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.quick-entry-cancel {
+  flex: 1 1 auto;
+}
+
+/* ===================================================================== *
+ * Activity detail (chart / goals / rename / create containers)
+ * ===================================================================== */
+
+.activity-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.activity-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.activity-detail-title {
+  font-size: var(--font-size-lg);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* "Back" control in detail/overlay headers; secondary button, never shrinks
+   below the 44px Touch_Target (Req 11.2). */
+.activity-detail-close {
+  flex: 0 0 auto;
+}
+
+/* ===================================================================== *
+ * Forms (ActivityForm, RenameForm, text-field, form-button)
+ * ===================================================================== */
+
+.activity-form,
+.rename-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.text-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.text-field-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.text-field-input {
+  width: 100%;
+}
+
+.text-field-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.activity-form-actions,
+.rename-form-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.form-button {
+  flex: 1 1 auto;
+}
+
+.form-button-submit {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-weight: var(--font-weight-medium);
+}
+
+.form-button-submit:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+/* Secondary (cancel) form button: the neutral base button look is correct;
+   this keeps the class explicit so all styling lives in CSS. */
+.form-button-cancel {
+  background-color: var(--color-surface-raised);
+}
+
+/* ===================================================================== *
+ * Decimal input (Req 11.3, 11.4)
+ * ===================================================================== */
+
+.decimal-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.decimal-input-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.decimal-input-field {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.decimal-input-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/* ===================================================================== *
+ * Value entry (Req 3.x, 4.x)
+ * ===================================================================== */
+
+.value-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.value-entry-date {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.value-entry-date-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.value-entry-date-field {
+  width: 100%;
+}
+
+.value-entry-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.value-entry-save {
+  flex: 1 1 auto;
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.value-entry-save:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.value-entry-cancel {
+  flex: 1 1 auto;
+}
+
+/* ===================================================================== *
+ * Chart view / period navigator / summary (Req 5.x, 7.x, 8.x)
+ * ===================================================================== */
+
+.chart-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.chart-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chart-view-title {
+  font-size: var(--font-size-lg);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* "Back" control in the chart header; secondary button that keeps its size. */
+.chart-view-close {
+  flex: 0 0 auto;
+}
+
+.chart-view-type-toggle {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chart-view-type-button {
+  flex: 1 1 auto;
+}
+
+/* Selected view-type button (aria-pressed is set by the component). */
+.chart-view-type-button[aria-pressed='true'] {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.chart-view-days {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.chart-view-days-title {
+  font-size: var(--font-size-md);
+}
+
+.chart-view-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* One Day row in the "Record a value" list; wraps its day button and the
+   inline value-entry sheet, letting both shrink on a 320px viewport. */
+.chart-view-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.chart-view-day-button {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.period-navigator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.period-navigator-title {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: var(--font-size-md);
+  min-width: 0;
+}
+
+.period-navigator-prev,
+.period-navigator-next {
+  flex: 0 0 auto;
+}
+
+.period-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.period-summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.period-summary-label {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.period-summary-total,
+.period-summary-goal,
+.period-summary-progress {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-medium);
+}
+
+.period-summary-status {
+  margin: 0;
+}
+
+.period-summary-no-goal {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ===================================================================== *
+ * Bar chart (SVG presentation only — geometry is set by the component)
+ * (Req 5.1–5.3, 5.6, 5.9, 5.12–5.15, 11.2)
+ * ===================================================================== */
+
+.bar-chart {
+  width: 100%;
+  min-width: 0;
+}
+
+.bar-chart-title {
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.bar-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* Orientation hooks set by the component from chartOrientation (Req 5.12–5.14).
+   The SVG geometry (viewBox, x/y/width/height) is computed in BarChart; these
+   classes only carry the choice for any orientation-specific presentation. */
+.bar-chart-rows,
+.bar-chart-columns {
+  width: 100%;
+}
+
+/* <pattern> element id-hook for the future hatch fill; presentation is on the
+   child .bar-chart-hatch-line. No own paint rule needed. */
+.bar-chart-position {
+  cursor: default;
+}
+
+/* Future Day positions: dim the whole slot so the hatched bar and "future"
+   text read as not-yet-recorded, consistent with the muted future colour. */
+.bar-chart-position-future {
+  opacity: 0.85;
+}
+
+.bar-chart-position:focus-visible {
+  outline: none;
+}
+
+/* Focus ring drawn on the transparent hit area so the whole 44px slot shows it. */
+.bar-chart-position:focus-visible .bar-chart-hit {
+  stroke: var(--color-focus-ring);
+  stroke-width: 2;
+}
+
+.bar-chart-hit {
+  fill: transparent;
+}
+
+.bar-chart-bar {
+  fill: var(--color-chart-bar);
+}
+
+.bar-chart-day-label {
+  fill: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.bar-chart-axis,
+.bar-chart-track {
+  fill: var(--color-chart-track);
+}
+
+.bar-chart-goal-line {
+  stroke: var(--color-chart-goal-line);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+/* <pattern> marker class; the hatch is painted by the child line below, so the
+   pattern element itself carries no paint (kept for completeness). */
+.bar-chart-hatch {
+  /* no paint: a <pattern> has no visual box of its own */
+  pointer-events: none;
+}
+
+.bar-chart-hatch-line {
+  stroke: var(--color-chart-future);
+  stroke-width: 2;
+}
+
+.bar-chart-future-fill {
+  opacity: 0.6;
+}
+
+.bar-chart-future-text {
+  fill: var(--color-chart-future);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ===================================================================== *
+ * Goal panel / goal history (Req 6.x, 8.x)
+ * ===================================================================== */
+
+.goal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.goal-panel-title {
+  font-size: var(--font-size-lg);
+}
+
+.goal-type-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.goal-type-title {
+  font-size: var(--font-size-md);
+}
+
+.goal-type-current {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+}
+
+.goal-type-value,
+.goal-type-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-type-status {
+  color: var(--color-text-muted);
+}
+
+.goal-type-none {
+  font-style: italic;
+}
+
+.goal-type-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.goal-set {
+  flex: 1 1 auto;
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.goal-set:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.goal-remove {
+  flex: 1 1 auto;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.goal-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.goal-history-title {
+  font-size: var(--font-size-md);
+}
+
+.goal-history-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.goal-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.goal-history-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-raised);
+}
+
+.goal-history-type {
+  font-weight: var(--font-weight-medium);
+}
+
+.goal-history-change {
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-history-start {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ===================================================================== *
+ * Dialogs (ConfirmDialog, DiscardConfirmDialog) (Req 1.7, 9.9)
+ * ===================================================================== */
+
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 2 * var(--space-4)));
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-2);
+}
+
+.confirm-dialog::backdrop {
+  background-color: var(--color-backdrop);
+}
+
+.confirm-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.confirm-dialog-title {
+  font-size: var(--font-size-lg);
+}
+
+.confirm-dialog-body {
+  color: var(--color-text);
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.dialog-button {
+  flex: 1 1 auto;
+}
+
+.dialog-button-confirm {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-weight: var(--font-weight-medium);
+}
+
+.dialog-button-confirm:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.dialog-button-confirm.destructive {
+  background-color: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+
+.dialog-button-confirm.destructive:hover:not(:disabled) {
+  background-color: var(--color-danger-hover);
+}
+
+/* Cancel button in a dialog: the neutral base button look is correct; the
+   class is kept explicit so dialog buttons are styled only through CSS. */
+.dialog-button-cancel {
+  background-color: var(--color-surface-raised);
+}
+
+.delete-confirm-message,
+.discard-confirm-message {
+  overflow-wrap: anywhere;
+}
+
+.discard-confirm-error {
+  margin-top: var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/* ===================================================================== *
+ * Recovery banner (Req 9.4, 9.8)
+ * ===================================================================== */
+
+.recovery-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  /* Add the top inset so a banner near the notch stays clear of it (Req 11.7). */
+  padding-top: calc(var(--space-4) + var(--safe-top));
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.recovery-banner-message {
+  color: var(--color-text);
+}
+
+.recovery-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.recovery-banner-import {
+  flex: 1 1 auto;
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.recovery-banner-import:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.recovery-banner-discard {
+  flex: 1 1 auto;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* ===================================================================== *
+ * Update prompt (Req 10.9–10.11)
+ * ===================================================================== */
+
+.update-prompt {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  /* Keep the fixed banner inside the bottom and side safe-area insets. */
+  padding:
+    var(--space-3)
+    calc(var(--space-4) + var(--safe-right))
+    calc(var(--space-3) + var(--safe-bottom))
+    calc(var(--space-4) + var(--safe-left));
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-surface-raised);
+  box-shadow: var(--shadow-2);
+}
+
+.update-prompt-message {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.update-prompt-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.update-prompt-apply {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.update-prompt-apply:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+/* "Later" (postpone) control: the neutral base button look is correct. */
+.update-prompt-later {
+  background-color: var(--color-surface-raised);
+}
+
+/* ===================================================================== *
+ * Notifications (aria-live region) (Req 1.10, 3.8, ...)
+ * ===================================================================== */
+
+.notifications {
+  margin: var(--space-2) auto 0;
+  width: 100%;
+  max-width: var(--content-max-width);
+  padding: 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  min-height: 1.5em;
+}
+
+.notifications:empty {
+  padding: 0;
+  min-height: 0;
+}
+
+/* ===================================================================== *
+ * Wide viewport (>= WIDE_VIEWPORT_MIN_PX = 768px)
+ * The chart column/row choice is handled by the component via
+ * chartOrientation; these rules only widen the comfortable layout
+ * for forms and action rows on tablets and desktops (Req 11.8).
+ * ===================================================================== */
+
+@media (min-width: 768px) {
+  .activity-row-main {
+    flex-wrap: nowrap;
+  }
+
+  .activity-row-goals,
+  .activity-row-actions {
+    flex-basis: auto;
+  }
+
+  .activity-row-action {
+    flex: 0 0 auto;
+  }
+
+  .activity-form-actions,
+  .rename-form-actions,
+  .value-entry-actions,
+  .quick-entry-actions,
+  .goal-type-actions,
+  .confirm-dialog-actions {
+    justify-content: flex-end;
+  }
+
+  .form-button,
+  .value-entry-save,
+  .value-entry-cancel,
+  .quick-entry-save,
+  .quick-entry-cancel,
+  .goal-set,
+  .goal-remove,
+  .dialog-button {
+    flex: 0 0 auto;
+    min-width: 8rem;
+  }
+
+  .chart-view-day-button {
+    width: auto;
+    min-width: 12rem;
+  }
+}

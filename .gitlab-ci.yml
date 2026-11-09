@@ -1,9 +1,14 @@
 # CI/CD for the Achievement Tracker PWA (static site on GitLab Pages).
 #
+# Target instance: source.tui GitLab 19.5.1-ee, which serves each Pages site on a
+# unique domain (e.g. https://achieve-f01113.pages.devops.tui) with no path prefix,
+# so the base path is "/". The modern `pages: publish: dist` syntax is supported.
+#
 # - Merge requests and non-default branches: `test` (lint + Jest) and `build`.
 # - Default branch (`main`): `pages` repeats lint and tests, builds and publishes
 #   `dist/`, so a failing test never deploys.
-# - vite.config.ts reads CI_PAGES_URL (via pagesBasePath.ts) to set the base path.
+# - vite.config.ts reads CI_PAGES_URL (via pagesBasePath.ts) to set the base path
+#   (empty / "/" on this unique-domain instance; still supports path-style Pages).
 
 default:
   image: node:22.14.0        # assumption: shared runners can pull this image (Docker Hub or company mirror)
@@ -39,19 +44,9 @@ pages:
     - npm run lint
     - npm test
     - npm run build            # vite.config.ts reads CI_PAGES_URL for the base path
-    # Fallback for GitLab older than 16.1 (Pages only publishes a `public/` artifact):
-    # uncomment the next line, remove the `pages: publish` block below and use
-    # `artifacts: paths: [public]`. Removing `public/` is safe here because Vite
-    # has already copied its static assets into `dist/`.
-    # - rm -rf public && cp -r dist public
   pages:
-    publish: dist              # GitLab 17.9+ syntax (assumption: instance supports it)
-  # Fallback for GitLab 16.1 to 17.8: replace the `pages: publish: dist` block
-  # above with the job-level keyword:
-  # publish: dist
+    publish: dist              # GitLab 17.9+ syntax, confirmed on the 19.5.x instance
   artifacts:
     paths: [dist]
-    # Fallback for GitLab older than 16.1:
-    # paths: [public]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
