@@ -1,0 +1,75 @@
+/* Minimal spike styling. Replaced by the real tokens/layout in task 14. */
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.4;
+}
+
+body {
+  margin: 0;
+}
+
+.spike {
+  box-sizing: border-box;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+    calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  overflow-wrap: anywhere;
+}
+
+.spike h1 {
+  font-size: 1.3rem;
+}
+
+.spike h2 {
+  font-size: 1.1rem;
+  margin-top: 1.5rem;
+}
+
+.spike dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 4px 12px;
+}
+
+.spike dt {
+  font-weight: 600;
+}
+
+.spike dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.spike button,
+.spike-banner button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 16px;
+  font: inherit;
+}
+
+.spike-error {
+  color: #d1242f;
+}
+
+.spike-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 8px
+    calc(16px + env(safe-area-inset-left));
+  background: #1f6feb;
+  color: #ffffff;
+}
+
+.spike-actions {
+  display: flex;
+  gap: 8px;
+}

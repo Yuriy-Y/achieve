@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Achievement Tracker">
+  <rect width="512" height="512" rx="96" fill="#1f6feb"/>
+  <!-- Three ascending bars: progress over time -->
+  <rect x="112" y="296" width="72" height="112" rx="12" fill="#ffffff"/>
+  <rect x="220" y="232" width="72" height="176" rx="12" fill="#ffffff"/>
+  <rect x="328" y="168" width="72" height="240" rx="12" fill="#ffffff"/>
+  <!-- Star above the tallest bar: goal achieved -->
+  <path d="M364 52 l17.6 35.7 39.4 5.7 -28.5 27.8 6.7 39.2 -35.2 -18.5 -35.2 18.5 6.7 -39.2 -28.5 -27.8 39.4 -5.7z" fill="#ffd33d"/>
+</svg>

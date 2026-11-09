@@ -1,0 +1,57 @@
+# CI/CD for the Achievement Tracker PWA (static site on GitLab Pages).
+#
+# - Merge requests and non-default branches: `test` (lint + Jest) and `build`.
+# - Default branch (`main`): `pages` repeats lint and tests, builds and publishes
+#   `dist/`, so a failing test never deploys.
+# - vite.config.ts reads CI_PAGES_URL (via pagesBasePath.ts) to set the base path.
+
+default:
+  image: node:22.14.0        # assumption: shared runners can pull this image (Docker Hub or company mirror)
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+
+stages: [test, build, pages]
+
+test:
+  stage: test
+  script:
+    - npm run lint
+    - npm test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+
+build:
+  stage: build
+  script:
+    - npm run build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+
+pages:
+  stage: pages
+  script:
+    - npm run lint
+    - npm test
+    - npm run build            # vite.config.ts reads CI_PAGES_URL for the base path
+    # Fallback for GitLab older than 16.1 (Pages only publishes a `public/` artifact):
+    # uncomment the next line, remove the `pages: publish` block below and use
+    # `artifacts: paths: [public]`. Removing `public/` is safe here because Vite
+    # has already copied its static assets into `dist/`.
+    # - rm -rf public && cp -r dist public
+  pages:
+    publish: dist              # GitLab 17.9+ syntax (assumption: instance supports it)
+  # Fallback for GitLab 16.1 to 17.8: replace the `pages: publish: dist` block
+  # above with the job-level keyword:
+  # publish: dist
+  artifacts:
+    paths: [dist]
+    # Fallback for GitLab older than 16.1:
+    # paths: [public]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
