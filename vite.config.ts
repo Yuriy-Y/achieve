@@ -31,8 +31,12 @@ export default defineConfig({
     stripCspInDev(),
     react(),
     VitePWA({
-      // Updates are applied only after the user accepts the prompt (Req 10.9–10.11).
-      registerType: 'prompt',
+      // autoUpdate: a new App_Version activates and reloads on the next launch
+      // without a prompt. Chosen for this single-user PWA so deploys refresh
+      // cleanly and never get stuck behind a cached worker (deviates from the
+      // design's prompt-mode Req 10.9–10.11; UpdatePrompt stays wired but its
+      // needRefresh never fires under autoUpdate, so no prompt is shown).
+      registerType: 'autoUpdate',
       // Registration happens in the bundle via useRegisterSW (no inline script, CSP-friendly).
       injectRegister: false,
       // <link rel="manifest" crossorigin="use-credentials"> so the manifest loads behind GitLab Pages auth.

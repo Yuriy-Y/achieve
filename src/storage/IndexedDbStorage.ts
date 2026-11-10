@@ -75,14 +75,81 @@ function runTransaction(tx: IDBTransaction, work: () => void): Promise<void> {
   })
 }
 
+/**
+ * Default watchdog timeout (ms) for a single IndexedDB open or transaction
+ * attempt. On iOS Safari and standalone PWAs an IndexedDB readwrite transaction
+ * can occasionally stall and never fire `oncomplete`, `onerror` or `onabort`
+ * (a long-standing WebKit bug), which would otherwise hang `commit` forever and
+ * leave the UI stuck. The watchdog turns such a stall into a rejection so the
+ * caller can retry on a fresh connection or roll back.
+ */
+const DEFAULT_IDB_TIMEOUT_MS = 8000
+
+/** Error thrown when an IndexedDB open or transaction stalls past the watchdog. */
+class IndexedDbTimeoutError extends Error {
+  constructor(what: string, ms: number) {
+    super(`IndexedDB ${what} timed out after ${ms}ms`)
+    this.name = 'IndexedDbTimeoutError'
+  }
+}
+
+/**
+ * Race a promise against a watchdog timer. If `promise` has not settled within
+ * `ms`, the returned promise rejects with an {@link IndexedDbTimeoutError};
+ * `onTimeout` runs so the caller can abort/close the stalled resources. The
+ * timer is always cleared once either side settles. The watchdog never
+ * *resolves* on timeout, so a stalled write is never reported as a success.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string, onTimeout: () => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      try {
+        onTimeout()
+      } catch {
+        // Best-effort cleanup; the rejection below is what matters.
+      }
+      reject(new IndexedDbTimeoutError(what, ms))
+    }, ms)
+    promise.then(
+      (value) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+  })
+}
+
 export class IndexedDbStorage implements StoragePort {
+  /** Watchdog timeout (ms) per open/transaction attempt. Injected for tests. */
+  private readonly timeoutMs: number
+
+  /**
+   * @param timeoutMs Per-attempt watchdog timeout (default
+   *   {@link DEFAULT_IDB_TIMEOUT_MS}). `new IndexedDbStorage()` keeps the
+   *   production default; tests may pass a small value.
+   */
+  constructor(timeoutMs: number = DEFAULT_IDB_TIMEOUT_MS) {
+    this.timeoutMs = timeoutMs
+  }
+
   /**
    * Open the database, creating the stores and the `meta` record on first
    * creation (or on a version upgrade). A version mismatch where the stored
    * database is at a higher version than `DB_VERSION` makes `open` fail with a
    * `VersionError`; that rejection is treated as unreadable by `load`.
    */
-  private open(): Promise<IDBDatabase> {
+  private openRaw(): Promise<IDBDatabase> {
     return new Promise<IDBDatabase>((resolve, reject) => {
       let request: IDBOpenDBRequest
       try {
@@ -121,6 +188,24 @@ export class IndexedDbStorage implements StoragePort {
   }
 
   /**
+   * Open the database with the watchdog. If the open stalls past the timeout
+   * the attempt rejects; if it resolves *after* the timeout (a very late event)
+   * the connection is closed so it cannot leak and block later transactions.
+   */
+  private openDb(): Promise<IDBDatabase> {
+    let opened: IDBDatabase | undefined
+    const raw = this.openRaw().then((db) => {
+      opened = db
+      return db
+    })
+    return withTimeout(raw, this.timeoutMs, 'open', () => {
+      // If the open settles late, make sure the connection is closed.
+      raw.then((db) => db.close()).catch(() => {})
+      if (opened) opened.close()
+    })
+  }
+
+  /**
    * Read and validate the persisted Data_Set once at startup (design: Startup
    * flow). Any open failure, read failure, missing store, unknown schema
    * version or rule-validation failure yields `unreadable` with a short reason;
@@ -129,7 +214,7 @@ export class IndexedDbStorage implements StoragePort {
   async load(): Promise<LoadResult> {
     let db: IDBDatabase
     try {
-      db = await this.open()
+      db = await this.openDb()
     } catch (error) {
       // Open failed (including a higher stored schema version): unreadable.
       return { status: 'unreadable', reason: describe(error, 'The saved data could not be opened') }
@@ -199,19 +284,57 @@ export class IndexedDbStorage implements StoragePort {
    * record.
    */
   async commit(mutation: Mutation): Promise<void> {
-    const db = await this.open()
+    // iOS Safari / standalone PWAs occasionally stall an IndexedDB readwrite
+    // transaction so it never fires any completion event, which would hang this
+    // promise forever (Req 9.1/9.6 would never be satisfied). The watchdog in
+    // `commitOnce` turns a stall into a rejection; a single retry on a FRESH
+    // connection clears the (usually transient) stall. Only a real
+    // `tx.oncomplete` resolves, so success is never reported for unwritten data.
     try {
-      // `replaceAll` also rewrites `meta`; `patch` touches only the data stores.
-      const stores =
-        mutation.kind === 'replaceAll'
-          ? (ALL_STORES as unknown as string[])
-          : (DATA_STORES as unknown as string[])
-      const tx = db.transaction(stores, 'readwrite')
-      await runTransaction(tx, () => {
+      await this.commitOnce(mutation)
+    } catch (firstError) {
+      // Retry once on a brand-new connection; iOS stalls rarely survive this.
+      try {
+        await this.commitOnce(mutation)
+      } catch {
+        // Surface the original failure so the store rolls back the optimistic
+        // state and the UI shows the "not saved" notice.
+        throw firstError instanceof Error ? firstError : new Error(String(firstError))
+      }
+    }
+  }
+
+  /**
+   * One commit attempt: open a fresh connection, run the mutation in a single
+   * `readwrite` transaction, and resolve only on `tx.oncomplete`. The whole
+   * attempt is bounded by the watchdog; on timeout the transaction is aborted
+   * (best-effort) and the connection closed, and the attempt rejects. The
+   * connection is always closed before returning so a stalled attempt cannot
+   * leak a handle that blocks the retry (a common iOS failure mode).
+   */
+  private async commitOnce(mutation: Mutation): Promise<void> {
+    const db = await this.openDb()
+    // `replaceAll` also rewrites `meta`; `patch` touches only the data stores.
+    const stores =
+      mutation.kind === 'replaceAll'
+        ? (ALL_STORES as unknown as string[])
+        : (DATA_STORES as unknown as string[])
+    let tx: IDBTransaction | undefined
+    try {
+      const run = runTransaction((tx = db.transaction(stores, 'readwrite')), () => {
         if (mutation.kind === 'replaceAll') {
-          applyReplaceAll(tx, mutation.dataset)
+          applyReplaceAll(tx as IDBTransaction, mutation.dataset)
         } else {
-          applyPatch(tx, mutation)
+          applyPatch(tx as IDBTransaction, mutation)
+        }
+      })
+      await withTimeout(run, this.timeoutMs, 'commit transaction', () => {
+        // Abort the stalled transaction so it cannot commit late after we have
+        // already rejected and (on retry) written the same data again.
+        try {
+          tx?.abort()
+        } catch {
+          // Already finished; ignore.
         }
       })
     } finally {
@@ -243,7 +366,7 @@ export class IndexedDbStorage implements StoragePort {
   async discard(): Promise<void> {
     let db: IDBDatabase
     try {
-      db = await this.open()
+      db = await this.openDb()
     } catch {
       // Path 2: the database could not be opened at all.
       return deleteDatabase()
