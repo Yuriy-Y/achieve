@@ -430,6 +430,23 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+.decimal-input-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+.decimal-input-row .decimal-input-field {
+  flex: 1;
+  min-width: 0;
+}
+.decimal-input-sign {
+  min-width: var(--touch);
+  min-height: var(--touch);
+}
+.decimal-input-sign[aria-pressed='true'] {
+  background-color: var(--color-accent, var(--color-surface-raised));
+  font-weight: var(--font-weight-medium);
+}
 .decimal-input-error {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
@@ -625,6 +642,16 @@ textarea {
   min-width: 0;
 }
 
+.bar-chart-scroll {
+  /* Horizontal time series: scroll inside the chart, never the page (Req 11.1). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+.bar-chart-scroll > .bar-chart-svg {
+  width: auto;
+  max-width: none;
+}
 .bar-chart-title {
   margin-bottom: var(--space-2);
   font-size: var(--font-size-sm);
@@ -672,8 +699,29 @@ textarea {
   fill: transparent;
 }
 
-.bar-chart-bar {
-  fill: var(--color-chart-bar);
+.bar-chart-series-0 { fill: var(--color-series-0); }
+.bar-chart-series-1 { fill: var(--color-series-1); }
+.bar-chart-series-2 { fill: var(--color-series-2); }
+.bar-chart-series-3 { fill: var(--color-series-3); }
+.bar-chart-series-4 { fill: var(--color-series-4); }
+.bar-chart-series-5 { fill: var(--color-series-5); }
+/* Pattern marks that tell series apart without colour (Req 16.12). */
+.bar-chart-mark {
+  fill: none;
+  stroke: var(--color-chart-mark);
+  stroke-width: 1.5;
+}
+.bar-chart-mark-fill {
+  fill: var(--color-chart-mark);
+}
+/* Zero baseline, drawn only when a value is negative (Req 13.5). */
+.bar-chart-baseline {
+  stroke: var(--color-chart-axis);
+  stroke-width: 1;
+}
+/* A Week or Month position that includes days after today (Req 15.12). */
+.bar-chart-position-partly {
+  opacity: 0.9;
 }
 
 .bar-chart-day-label {
@@ -1070,4 +1118,495 @@ textarea {
     width: auto;
     min-width: 12rem;
   }
+}
+
+/* ===================================================================== *
+ * Title button for the Analyser reveal gesture (Req 16.1)
+ * ===================================================================== */
+.app-title-button {
+  min-height: var(--touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.app-title-button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ===================================================================== *
+ * Tags and entries (Req 14)
+ * ===================================================================== */
+.tag-input {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.tag-input-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+.tag-input-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  overflow-wrap: anywhere;
+}
+.tag-chip-static {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+}
+.tag-chip-remove {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.tag-input-field {
+  width: 100%;
+}
+.tag-suggestions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-2);
+}
+.tag-suggestions[hidden] {
+  display: none;
+}
+.tag-suggestion {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch);
+  padding: 0 var(--space-3);
+  cursor: pointer;
+}
+.tag-suggestion-active,
+.tag-suggestion:hover {
+  background: var(--color-surface-raised);
+}
+.tag-input-error,
+.entry-editor-error,
+.analyser-message {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+.entry-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.entry-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.entry-row-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+.entry-row-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-medium);
+}
+.entry-row-edit,
+.entry-row-remove {
+  min-height: var(--touch);
+  min-width: var(--touch);
+}
+.activity-row-more {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ===================================================================== *
+ * Granularity, Analyser (Req 15, 16)
+ * ===================================================================== */
+.granularity-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.analyser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.analyser-chooser,
+.ratio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.analyser-fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-width: 0;
+}
+.analyser-legend {
+  font-weight: var(--font-weight-medium);
+}
+.analyser-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.analyser-activity-label,
+.ratio-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch);
+}
+.analyser-chooser-actions,
+.analyser-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.analyser-tag[aria-pressed='true'] {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+.analyser-caption,
+.ratio-note,
+.analyser-used {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.ratio-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ratio-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.ratio-row-tag {
+  flex: 1 1 100%;
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+.series-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.series-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.series-stats {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+.series-stats th,
+.series-stats td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.series-stats-caption {
+  text-align: start;
+  color: var(--color-text-muted);
+  padding-bottom: var(--space-2);
+}
+.analyser-open,
+.analyser-hide {
+  min-height: var(--touch);
+}
+
+/* ===================================================================== *
+ * Green buttons, toggles, signed bars, axis and trend
+ * ===================================================================== */
+/* A toggle that is off is outlined; on it is filled green. */
+button[aria-pressed='false'] {
+  background-color: var(--color-surface);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+button[aria-pressed='false']:hover:not(:disabled) {
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-accent);
+}
+/* Quiet controls that must not look like primary buttons. */
+.app-title-button,
+.app-title-button:hover:not(:disabled),
+.tag-chip-remove,
+.tag-chip-remove:hover:not(:disabled) {
+  background-color: transparent;
+  border-color: transparent;
+  color: inherit;
+}
+.app-title-button {
+  padding: 0;
+}
+/* The sign toggle turns red while the value is negative. */
+.decimal-input-sign[aria-pressed='true'],
+.decimal-input-sign[aria-pressed='true']:hover:not(:disabled) {
+  background-color: var(--color-negative);
+  border-color: var(--color-negative);
+  color: #ffffff;
+}
+.entry-row-remove,
+.activity-row-delete {
+  background-color: var(--color-surface);
+  border-color: var(--color-negative);
+  color: var(--color-negative);
+}
+/* Positive bars use the accent; negative bars are red (Req 13.5). */
+.bar-chart-bar.bar-chart-negative {
+  fill: var(--color-negative);
+}
+.bar-chart-bar.bar-chart-negative-multi {
+  stroke: var(--color-negative);
+  stroke-width: 2;
+}
+/* Y axis: values and light grid lines. */
+.bar-chart-body {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+.bar-chart-body > .bar-chart-scroll {
+  flex: 1;
+  min-width: 0;
+}
+.bar-chart-yaxis {
+  flex: none;
+}
+.bar-chart-axis-label {
+  fill: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.bar-chart-grid {
+  stroke: var(--color-chart-axis);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.6;
+}
+/* Trend line of an Analyser series (Req 16.23). */
+.bar-chart-trend {
+  fill: none;
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.bar-chart-trend-0 { stroke: var(--color-series-0); }
+.bar-chart-trend-1 { stroke: var(--color-series-1); }
+.bar-chart-trend-2 { stroke: var(--color-series-2); }
+.bar-chart-trend-3 { stroke: var(--color-series-3); }
+.bar-chart-trend-4 { stroke: var(--color-series-4); }
+.bar-chart-trend-5 { stroke: var(--color-series-5); }
+.analyser-trend-toggle {
+  align-self: flex-start;
+}
+
+/* ===================================================================== *
+ * Button colours (app icon green). Placed last so they win over the
+ * per-component neutral rules above; later, equally specific rules below
+ * refine secondary, destructive and quiet buttons.
+ * ===================================================================== */
+button:not([aria-pressed]) {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+button:not([aria-pressed]):hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+/* Secondary actions: outlined green. */
+button.form-button-cancel,
+button.quick-entry-cancel,
+button.value-entry-cancel,
+button.chart-view-close,
+button.dialog-button-cancel,
+button.analyser-hide,
+button.ratio-row-reset,
+button.chart-view-day-button {
+  background-color: var(--color-surface);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+button.form-button-cancel:hover:not(:disabled),
+button.quick-entry-cancel:hover:not(:disabled),
+button.value-entry-cancel:hover:not(:disabled),
+button.chart-view-close:hover:not(:disabled),
+button.dialog-button-cancel:hover:not(:disabled),
+button.analyser-hide:hover:not(:disabled),
+button.ratio-row-reset:hover:not(:disabled),
+button.chart-view-day-button:hover:not(:disabled) {
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+/* Destructive actions: red outline. */
+button.activity-row-delete,
+button.entry-row-remove {
+  background-color: var(--color-surface);
+  border-color: var(--color-negative);
+  color: var(--color-negative);
+}
+button.activity-row-delete:hover:not(:disabled),
+button.entry-row-remove:hover:not(:disabled) {
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-negative);
+  color: var(--color-negative);
+}
+button.dialog-button-confirm.destructive {
+  background-color: var(--color-negative);
+  border-color: var(--color-negative);
+  color: #ffffff;
+}
+/* Quiet controls. */
+button.app-title-button,
+button.app-title-button:hover:not(:disabled),
+button.tag-chip-remove,
+button.tag-chip-remove:hover:not(:disabled) {
+  background-color: transparent;
+  border-color: transparent;
+  color: inherit;
+}
+
+/* ===================================================================== *
+ * Spacing between the sections and buttons of the main screen
+ * ===================================================================== */
+.app-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.backup-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.backup-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.backup-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.activity-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.activity-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.activity-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.activity-row-goals {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-row-actions {
+  flex: 1 1 100%;
+}
+.analyser-open {
+  align-self: flex-start;
+}
+.activity-list-header {
+  display: flex;
+  justify-content: flex-end;
+}
+.backup-import {
+  align-items: flex-start;
+}
+/* Four row actions fit on one line at 390 px. */
+.activity-row-actions {
+  gap: var(--space-2);
+}
+.activity-row-action {
+  padding-inline: var(--space-3);
+  flex: 1 1 auto;
 }

@@ -15,7 +15,15 @@
  * titles use a fixed `Intl.DateTimeFormat('en-GB')` as the design specifies, so
  * they do not vary with the Device_Locale.
  */
-import type { Dataset } from './dataset'
+import { dayEntries, dayTotal, type Dataset } from './dataset'
+import {
+  bucketTotal,
+  chartWindow,
+  canGoNext,
+  type Bucket,
+  type WindowSpec,
+} from './granularity'
+import type { AnalyserModel } from './analyser'
 import type { GoalType, LocalDate, Period } from './calendar'
 import {
   comparePeriods,
@@ -83,7 +91,7 @@ export function activityListModel(
   })
 
   return ordered.map((activity) => {
-    const todayValue = ds.values.get(activity.id)?.get(today) ?? 0
+    const todayValue = dayTotal(ds, activity.id, today)
     const goals: GoalSummary[] = []
     for (const goalType of GOAL_TYPES) {
       const period = currentPeriod(today, goalType)
@@ -112,7 +120,7 @@ function goalSummaryFor(
 ): GoalSummary | null {
   const goal = resolveEffectiveGoal(ds.goalVersions, activityId, period)
   if (goal === null) return null
-  const total = periodTotal(ds.values, activityId, period)
+  const total = periodTotal(ds, activityId, period)
   const progressTenths = goalProgressTenths(total, goal)
   return {
     goalType: period.type,
@@ -177,9 +185,8 @@ export function chartModel(
   today: LocalDate,
   fmt: NumberDisplay,
 ): ChartModel {
-  const activityValues = ds.values.get(activityId)
   const positions: ChartPosition[] = daysOf(period).map((date) => {
-    const stored = activityValues?.get(date)
+    const stored = dayEntries(ds, activityId, date).length > 0 ? dayTotal(ds, activityId, date) : undefined
     const isFuture = date > today
     if (isFuture) {
       const value = stored ?? null
@@ -189,7 +196,7 @@ export function chartModel(
     return { date, value, isFuture, ariaLabel: pastAriaLabel(date, value, fmt) }
   })
 
-  const total = periodTotal(ds.values, activityId, period)
+  const total = periodTotal(ds, activityId, period)
   const goal = goalSummaryFor(ds, activityId, period, today, fmt)
   const current = currentPeriod(today, period.type)
   const isCurrent = comparePeriods(period, current) === 0
@@ -280,12 +287,18 @@ export function chartOrientation(
   isWideViewport: boolean,
   containerWidthPx: number,
   positionCount: number,
+  seriesCount = 1,
 ): 'columns' | 'rows' {
-  if (isWideViewport && containerWidthPx >= positionCount * TOUCH_MIN_PX) {
+  // Each position needs 44 px, or 14 px per series when several are drawn side by side.
+  const perPosition = Math.max(TOUCH_MIN_PX, SERIES_BAR_PX * seriesCount)
+  if (isWideViewport && containerWidthPx >= positionCount * perPosition) {
     return 'columns'
   }
   return 'rows'
 }
+
+/** Cross-axis size of one series bar inside a position (Req 15.11, 16.12). */
+export const SERIES_BAR_PX = 14
 
 /**
  * Switch the view type while keeping the user near the same point in time
@@ -318,4 +331,236 @@ export function navigate(selected: Period, dir: 'prev' | 'next', today: LocalDat
   const current = currentPeriod(today, selected.type)
   if (comparePeriods(selected, current) >= 0) return current
   return nextPeriod(selected)
+}
+
+// ---------------------------------------------------------------------------
+// Granularity-aware chart model (Requirements 13.5, 15, 16.12)
+// ---------------------------------------------------------------------------
+
+/** Patterns that tell series apart without colour (Req 16.12). */
+export const SERIES_MARKERS = ['solid', 'diagonal', 'dots', 'cross', 'dashed', 'wave'] as const
+export type SeriesMarker = (typeof SERIES_MARKERS)[number]
+
+export interface ChartSeries {
+  id: string
+  label: string
+  marker: SeriesMarker
+}
+
+/** Goal tick of a Week or Month position (Req 15.9). */
+export interface PositionGoal {
+  value: Milli
+  progressText: string
+  status: GoalStatus
+}
+
+export interface ChartPositionV2 {
+  index: number
+  start: LocalDate
+  end: LocalDate
+  /** Short axis label. */
+  label: string
+  /**
+   * One value per series for drawing; `null` for a future Day without an imported
+   * value. Plain numbers (not bigint) so React props stay serialisable; exact
+   * amounts are in the labels.
+   */
+  values: (number | null)[]
+  goal: PositionGoal | null
+  isFuture: boolean
+  isPartlyFuture: boolean
+  ariaLabel: string
+}
+
+export interface ChartModelV2 {
+  title: string
+  series: ChartSeries[]
+  positions: ChartPositionV2[]
+  /** Sum of the first series over the window, formatted for display (Req 15.10). */
+  windowTotalText: string
+  canGoNext: boolean
+  /** Day granularity only: the Effective_Goal of the shown Week/Month, drawn as a reference line (as before). */
+  referenceGoal: Milli | null
+}
+
+// Compact "28/09" so a Week label fits a 44 px position.
+const NUMERIC_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })
+const SHORT_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+const LONG_MONTH_FORMAT = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+const SHORT_MONTH_FORMAT = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' })
+const RANGE_END_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+function bucketLabel(b: Bucket): string {
+  if (b.kind === 'day') return String(Number(b.start.slice(8)))
+  if (b.kind === 'week') return NUMERIC_DATE_FORMAT.format(toUtcDate(b.start))
+  return SHORT_MONTH_FORMAT.format(toUtcDate(b.start))
+}
+
+function bucketName(b: Bucket): string {
+  if (b.kind === 'day') return fullDate(b.start)
+  if (b.kind === 'month') return LONG_MONTH_FORMAT.format(toUtcDate(b.start))
+  return `Week ${SHORT_DATE_FORMAT.format(toUtcDate(b.start))} to ${RANGE_END_FORMAT.format(toUtcDate(b.end))}`
+}
+
+function windowTitle(buckets: readonly Bucket[]): string {
+  const first = buckets[0]
+  const last = buckets[buckets.length - 1]
+  if (first.kind === 'day') {
+    return first.start.slice(0, 7) === last.start.slice(0, 7) && buckets.length > 7
+      ? LONG_MONTH_FORMAT.format(toUtcDate(first.start))
+      : `${WEEK_RANGE_FORMAT.format(toUtcDate(first.start))} \u2013 ${WEEK_RANGE_FORMAT.format(toUtcDate(last.end))}`
+  }
+  if (first.kind === 'month') {
+    return `${LONG_MONTH_FORMAT.format(toUtcDate(first.start))} \u2013 ${LONG_MONTH_FORMAT.format(toUtcDate(last.start))}`
+  }
+  return `${WEEK_RANGE_FORMAT.format(toUtcDate(first.start))} \u2013 ${WEEK_RANGE_FORMAT.format(toUtcDate(last.end))}`
+}
+
+function positionGoal(
+  ds: Dataset,
+  activityId: string,
+  bucket: Bucket,
+  total: Milli,
+  today: LocalDate,
+  fmt: NumberDisplay,
+): PositionGoal | null {
+  if (bucket.period === null) return null
+  const goal = resolveEffectiveGoal(ds.goalVersions, activityId, bucket.period)
+  if (goal === null) return null
+  return {
+    value: goal,
+    progressText: fmt.progress(goalProgressTenths(total, goal)),
+    status: goalStatus(total, goal, bucket.period, today),
+  }
+}
+
+/**
+ * Chart model of one Activity for a window and granularity (Req 15). Regular
+ * charts always show the raw Daily_Values (ratio 1, Req 16.10). Day granularity
+ * keeps the labels of the previous version (Req 17.5).
+ */
+export function chartModelV2(
+  ds: Dataset,
+  activityId: string,
+  name: string,
+  spec: WindowSpec,
+  today: LocalDate,
+  fmt: NumberDisplay,
+): ChartModelV2 {
+  const buckets = chartWindow(spec, today)
+  let windowTotal = 0n
+  const positions = buckets.map((b, index): ChartPositionV2 => {
+    const total = bucketTotal(ds, activityId, b)
+    const hasEntries = b.days.some((d) => dayEntries(ds, activityId, d).length > 0)
+    const value: number | null = b.isFuture && !hasEntries ? null : total
+    if (value !== null) windowTotal += BigInt(value)
+    const goal = positionGoal(ds, activityId, b, total, today, fmt)
+    let ariaLabel: string
+    if (b.kind === 'day') {
+      ariaLabel = b.isFuture ? futureAriaLabel(b.start, value, fmt) : pastAriaLabel(b.start, total, fmt)
+    } else {
+      ariaLabel = `${bucketName(b)}: ${fmt.value(total)}`
+      if (goal !== null) ariaLabel += `, goal ${fmt.value(goal.value)}, ${goal.progressText}, ${goal.status}`
+      if (b.isPartlyFuture) ariaLabel += ', includes future days'
+    }
+    return {
+      index,
+      start: b.start,
+      end: b.end,
+      label: bucketLabel(b),
+      values: [value],
+      goal,
+      isFuture: b.isFuture,
+      isPartlyFuture: b.isPartlyFuture,
+      ariaLabel,
+    }
+  })
+  return {
+    title: windowTitle(buckets),
+    series: [{ id: 'value', label: name, marker: 'solid' }],
+    positions,
+    windowTotalText: fmt.valueBig(windowTotal),
+    canGoNext: canGoNext(spec, today),
+    referenceGoal:
+      spec.granularity === 'day'
+        ? resolveEffectiveGoal(
+            ds.goalVersions,
+            activityId,
+            periodOf(spec.anchor, spec.span === 'week' ? 'weekly' : 'monthly'),
+          )
+        : null,
+  }
+}
+
+/** Chart model of an Analyser result (Req 16.12, 16.17). */
+export function analyserChartModel(
+  model: AnalyserModel,
+  spec: WindowSpec,
+  today: LocalDate,
+  fmt: NumberDisplay,
+): ChartModelV2 {
+  const series: ChartSeries[] = model.series.map((r, i) => ({
+    id: r.spec.id,
+    label: r.spec.label,
+    marker: SERIES_MARKERS[i % SERIES_MARKERS.length],
+  }))
+  const positions = model.buckets.map((b, index): ChartPositionV2 => {
+    const exact = model.series.map((r) => r.values[index] ?? 0n)
+    const values = exact.map((v) => Number(v))
+    const parts = model.series.map((r, i) => `${r.spec.label} ${fmt.valueBig(exact[i])}`)
+    let ariaLabel = `${bucketName(b)}: ${parts.join(', ')}`
+    if (b.isFuture) ariaLabel += ', future'
+    else if (b.isPartlyFuture) ariaLabel += ', includes future days'
+    return {
+      index,
+      start: b.start,
+      end: b.end,
+      label: bucketLabel(b),
+      values,
+      goal: null,
+      isFuture: b.isFuture,
+      isPartlyFuture: b.isPartlyFuture,
+      ariaLabel,
+    }
+  })
+  return {
+    title: windowTitle(model.buckets),
+    series,
+    positions,
+    windowTotalText: fmt.valueBig(model.series[0]?.stats.total ?? 0n),
+    canGoNext: canGoNext(spec, today),
+    referenceGoal: null,
+  }
+}
+
+/** Pixel scale of a chart axis with a common zero baseline (Req 13.5). */
+export interface Scale {
+  /** Distance of the zero baseline from the start of the axis. */
+  zeroPx: number
+  pxPerUnit: number
+}
+
+/**
+ * One scale for both directions: positive values extend from `zeroPx` towards
+ * the end, negative values towards the start; every bar and goal tick fits in
+ * `[0, extentPx]`. Without negative values the baseline is the start edge.
+ */
+export function chartScale(
+  values: readonly (number | bigint | null)[],
+  goals: readonly number[],
+  extentPx: number,
+): Scale {
+  let positive = 0
+  let negative = 0
+  for (const raw of values) {
+    if (raw === null) continue
+    const v = Number(raw)
+    if (v > positive) positive = v
+    if (-v > negative) negative = -v
+  }
+  for (const g of goals) if (g > positive) positive = g
+  const span = positive + negative
+  if (span === 0 || extentPx <= 0) return { zeroPx: 0, pxPerUnit: 0 }
+  const pxPerUnit = extentPx / span
+  return { zeroPx: negative * pxPerUnit, pxPerUnit }
 }

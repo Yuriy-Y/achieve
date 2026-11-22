@@ -29,11 +29,20 @@ import type {
   Dataset,
   GoalVersion,
   Milli,
+  TaggedValue,
+  TagRatio,
 } from './dataset'
-import { deleteActivityValues, setDailyValue } from './dataset'
+import {
+  deleteActivityTagged,
+  deleteActivityValues,
+  deleteTaggedValue,
+  setDailyValue,
+  setTaggedValue,
+} from './dataset'
+import { comboKey, resolveTags, tagKey, tagLibrary, validateTag, type TagError } from './tags'
 import type { GoalType, LocalDate } from './calendar'
 import { compareDates, isValidLocalDate } from './calendar'
-import { parseDailyValue, parseGoalValue, type ParseError } from './decimal'
+import { RATIO_ONE, parseDailyValue, parseGoalValue, parseRatio, type ParseError } from './decimal'
 import { validateActivityName, type NameError } from './names'
 import { removeGoal, setGoal } from './goals'
 
@@ -46,7 +55,9 @@ export type Command =
   | { kind: 'createActivity'; name: string; weeklyGoal?: string; monthlyGoal?: string }
   | { kind: 'renameActivity'; activityId: string; name: string }
   | { kind: 'deleteActivity'; activityId: string }
-  | { kind: 'recordValue'; activityId: string; date: LocalDate; value: string }
+  | { kind: 'recordValue'; activityId: string; date: LocalDate; value: string; tags?: string[] }
+  | { kind: 'removeEntry'; activityId: string; date: LocalDate; tags: string[] }
+  | { kind: 'setTagRatio'; tag: string; ratio: string }
   | { kind: 'setGoal'; activityId: string; goalType: GoalType; value: string }
   | { kind: 'removeGoal'; activityId: string; goalType: GoalType }
   | { kind: 'importDataset'; dataset: Dataset }
@@ -72,6 +83,9 @@ export type CommandError =
   | { field: 'date'; code: 'future' }
   | { field: 'weeklyGoal' | 'monthlyGoal' | 'goal'; code: ParseError }
   | { field: 'activity'; code: 'notFound' }
+  | { field: 'tags'; code: TagError; index: number }
+  | { field: 'ratio'; code: ParseError | 'tag' }
+  | { field: 'entry'; code: 'notFound' | 'untaggedNotRemovable' }
 
 /**
  * The storage mutation a committed command must persist. `patch` applies puts
@@ -86,6 +100,10 @@ export type Mutation =
       deleteActivityIds: string[]
       putDailyValues: DailyValue[]
       putGoalVersions: GoalVersion[]
+      putTaggedValues: TaggedValue[]
+      deleteTaggedValues: { activityId: string; date: LocalDate; comboKey: string }[]
+      putTagRatios: TagRatio[]
+      deleteTagRatioKeys: string[]
     }
   | { kind: 'replaceAll'; dataset: Dataset }
 
@@ -105,6 +123,10 @@ function emptyPatch(): Extract<Mutation, { kind: 'patch' }> {
     deleteActivityIds: [],
     putDailyValues: [],
     putGoalVersions: [],
+    putTaggedValues: [],
+    deleteTaggedValues: [],
+    putTagRatios: [],
+    deleteTagRatioKeys: [],
   }
 }
 
@@ -156,6 +178,10 @@ export function applyCommand(state: Dataset, cmd: Command, ctx: CommandContext):
       return applyDeleteActivity(state, cmd)
     case 'recordValue':
       return applyRecordValue(state, cmd, ctx)
+    case 'removeEntry':
+      return applyRemoveEntry(state, cmd)
+    case 'setTagRatio':
+      return applySetTagRatio(state, cmd)
     case 'setGoal':
       return applySetGoal(state, cmd, ctx)
     case 'removeGoal':
@@ -220,11 +246,7 @@ function applyCreateActivity(
     putGoalVersions.push(result.put)
   }
 
-  const next: Dataset = {
-    activities: [...state.activities, activity],
-    values: state.values,
-    goalVersions,
-  }
+  const next: Dataset = { ...state, activities: [...state.activities, activity], goalVersions }
   const mutation = emptyPatch()
   mutation.putActivities = [activity]
   mutation.putGoalVersions = putGoalVersions
@@ -249,9 +271,8 @@ function applyRenameActivity(
 
   const renamed: Activity = { ...activity, name: nameResult.value }
   const next: Dataset = {
+    ...state,
     activities: state.activities.map((a) => (a.id === cmd.activityId ? renamed : a)),
-    values: state.values,
-    goalVersions: state.goalVersions,
   }
   const mutation = emptyPatch()
   mutation.putActivities = [renamed]
@@ -271,8 +292,10 @@ function applyDeleteActivity(
   if (activity === undefined) return rejected({ field: 'activity', code: 'notFound' })
 
   const next: Dataset = {
+    ...state,
     activities: state.activities.filter((a) => a.id !== cmd.activityId),
     values: deleteActivityValues(state.values, cmd.activityId),
+    taggedValues: deleteActivityTagged(state.taggedValues, cmd.activityId),
     goalVersions: state.goalVersions.filter((v) => v.activityId !== cmd.activityId),
   }
   const mutation = emptyPatch()
@@ -301,22 +324,108 @@ function applyRecordValue(
     return rejected({ field: 'date', code: 'future' })
   }
 
+  const rawTags = cmd.tags ?? []
+  if (rawTags.length === 0) {
+    // Untagged entry: exactly the previous version's behaviour (Req 4.4, 17.7).
+    const parsed = parseDailyValue(cmd.value)
+    if (!parsed.ok) return rejected({ field: 'value', code: parsed.error })
+
+    const dailyValue: DailyValue = {
+      activityId: cmd.activityId,
+      date: cmd.date,
+      value: parsed.value,
+    }
+    const next: Dataset = {
+      ...state,
+      values: setDailyValue(state.values, cmd.activityId, cmd.date, parsed.value),
+    }
+    const mutation = emptyPatch()
+    mutation.putDailyValues = [dailyValue]
+    return accepted(next, mutation)
+  }
+
+  // Tagged entry (Req 14.1): validate the tags, adopting library spellings. The
+  // entry being replaced is ignored so its own spelling can be corrected.
+  const provisional = resolveTags(rawTags, [])
+  if (!provisional.ok) return rejected({ field: 'tags', ...provisional.error })
+  const ignore = { activityId: cmd.activityId, date: cmd.date, comboKey: comboKey(provisional.value) }
+  const resolved = resolveTags(rawTags, tagLibrary(state, ignore))
+  if (!resolved.ok) return rejected({ field: 'tags', ...resolved.error })
+
   const parsed = parseDailyValue(cmd.value)
   if (!parsed.ok) return rejected({ field: 'value', code: parsed.error })
 
-  const dailyValue: DailyValue = {
+  const entry: TaggedValue = {
     activityId: cmd.activityId,
     date: cmd.date,
+    tags: resolved.value,
     value: parsed.value,
   }
+  const key = comboKey(resolved.value)
   const next: Dataset = {
-    activities: state.activities,
-    values: setDailyValue(state.values, cmd.activityId, cmd.date, parsed.value),
-    goalVersions: state.goalVersions,
+    ...state,
+    taggedValues: setTaggedValue(state.taggedValues, entry, key),
   }
   const mutation = emptyPatch()
-  mutation.putDailyValues = [dailyValue]
+  mutation.putTaggedValues = [entry]
   return accepted(next, mutation)
+}
+
+/**
+ * Remove one tagged entry (Req 14.15). The untagged entry cannot be removed; it
+ * is set to zero instead (Req 4.4).
+ */
+function applyRemoveEntry(
+  state: Dataset,
+  cmd: Extract<Command, { kind: 'removeEntry' }>,
+): ApplyResult {
+  if (findActivity(state, cmd.activityId) === undefined) {
+    return rejected({ field: 'activity', code: 'notFound' })
+  }
+  if (cmd.tags.length === 0) return rejected({ field: 'entry', code: 'untaggedNotRemovable' })
+  const key = comboKey(cmd.tags)
+  if (state.taggedValues.get(cmd.activityId)?.get(cmd.date)?.get(key) === undefined) {
+    return rejected({ field: 'entry', code: 'notFound' })
+  }
+  const next: Dataset = {
+    ...state,
+    taggedValues: deleteTaggedValue(state.taggedValues, cmd.activityId, cmd.date, key),
+  }
+  const mutation = emptyPatch()
+  mutation.deleteTaggedValues = [{ activityId: cmd.activityId, date: cmd.date, comboKey: key }]
+  return accepted(next, mutation)
+}
+
+/**
+ * Set a global Tag_Ratio (Req 16.8-16.10). A ratio of exactly 1 removes the
+ * stored record; entries are never touched. The library spelling is adopted so
+ * each Tag has one spelling in the Data_Set.
+ */
+function applySetTagRatio(
+  state: Dataset,
+  cmd: Extract<Command, { kind: 'setTagRatio' }>,
+): ApplyResult {
+  const tag = validateTag(cmd.tag)
+  if (!tag.ok) return rejected({ field: 'ratio', code: 'tag' })
+  const parsed = parseRatio(cmd.ratio)
+  if (!parsed.ok) return rejected({ field: 'ratio', code: parsed.error })
+
+  const key = tagKey(tag.value)
+  const existing = state.tagRatios.get(key)
+  const label =
+    tagLibrary(state).find((t) => t.key === key)?.label ?? existing?.label ?? tag.value
+  const ratios = new Map(state.tagRatios)
+  const mutation = emptyPatch()
+  if (parsed.value === RATIO_ONE) {
+    if (existing === undefined) return accepted(state, mutation)
+    ratios.delete(key)
+    mutation.deleteTagRatioKeys = [key]
+  } else {
+    const record: TagRatio = { key, label, ratio: parsed.value }
+    ratios.set(key, record)
+    mutation.putTagRatios = [record]
+  }
+  return accepted({ ...state, tagRatios: ratios }, mutation)
 }
 
 /**
@@ -336,11 +445,7 @@ function applySetGoal(
   if (!parsed.ok) return rejected(goalError('goal', parsed.error))
 
   const result = setGoal(state.goalVersions, cmd.activityId, cmd.goalType, parsed.value, ctx.today)
-  const next: Dataset = {
-    activities: state.activities,
-    values: state.values,
-    goalVersions: result.versions,
-  }
+  const next: Dataset = { ...state, goalVersions: result.versions }
   const mutation = emptyPatch()
   mutation.putGoalVersions = [result.put]
   return accepted(next, mutation)
@@ -361,11 +466,7 @@ function applyRemoveGoal(
   if (activity === undefined) return rejected({ field: 'activity', code: 'notFound' })
 
   const result = removeGoal(state.goalVersions, cmd.activityId, cmd.goalType, ctx.today)
-  const next: Dataset = {
-    activities: state.activities,
-    values: state.values,
-    goalVersions: result.versions,
-  }
+  const next: Dataset = { ...state, goalVersions: result.versions }
   const mutation = emptyPatch()
   if (result.put !== null) {
     mutation.putGoalVersions = [result.put]

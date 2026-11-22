@@ -51,6 +51,12 @@ export interface DecimalInputProps {
   disabled?: boolean
   /** Whether the field is auto-focused when mounted (e.g. in quick entry). */
   autoFocus?: boolean
+  /**
+   * Daily_Value inputs accept a leading minus (Req 13.1). When set, a 44 px sign
+   * toggle is shown next to the field because the iOS decimal keypad has no
+   * minus key (Req 11.17). Goal inputs leave this off.
+   */
+  allowNegative?: boolean
 }
 
 /**
@@ -67,6 +73,7 @@ export function DecimalInput({
   placeholder,
   disabled = false,
   autoFocus = false,
+  allowNegative = false,
 }: DecimalInputProps): ReactElement {
   const generatedId = useId()
   const inputId = id ?? generatedId
@@ -77,26 +84,46 @@ export function DecimalInput({
     onChange(event.target.value)
   }
 
+  const isNegative = /^[-\u2212]/.test(value.trim())
+  const toggleSign = (): void => {
+    const trimmed = value.trim()
+    onChange(isNegative ? trimmed.slice(1) : `-${trimmed}`)
+  }
+
   return (
     <div className="decimal-input">
       <label className="decimal-input-label" htmlFor={inputId}>
         {label}
       </label>
-      <input
-        id={inputId}
-        className="decimal-input-field"
-        type="text"
-        inputMode="decimal"
-        enterKeyHint="done"
-        autoComplete="off"
-        value={value}
-        onChange={handleChange}
-        placeholder={placeholder}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        aria-invalid={hasError}
-        aria-describedby={hasError ? errorId : undefined}
-      />
+      <div className="decimal-input-row">
+        <input
+          id={inputId}
+          className="decimal-input-field"
+          type="text"
+          inputMode="decimal"
+          enterKeyHint="done"
+          autoComplete="off"
+          value={value}
+          onChange={handleChange}
+          placeholder={placeholder}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? errorId : undefined}
+        />
+        {allowNegative ? (
+          <button
+            type="button"
+            className="decimal-input-sign"
+            aria-pressed={isNegative}
+            aria-label="Negative value"
+            disabled={disabled}
+            onClick={toggleSign}
+          >
+            {'\u00b1'}
+          </button>
+        ) : null}
+      </div>
       {hasError ? (
         <p id={errorId} className="decimal-input-error" role="alert">
           {error}

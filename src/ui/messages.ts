@@ -16,6 +16,7 @@
 import type { BackupError } from '../domain/backup'
 import type { CommandError } from '../domain/commands'
 import type { NameError } from '../domain/names'
+import type { TagError } from '../domain/tags'
 import type { DiscardError } from '../storage/StoragePort'
 
 /** Validation message for an Activity name error (Req 1.2, 1.3, 1.4). */
@@ -37,7 +38,7 @@ export function nameErrorMessage(code: NameError): string {
  * is needed.
  */
 export const DAILY_VALUE_ERROR_MESSAGE =
-  'Enter a number from 0 to 999,999.999 with at most 3 decimal places.'
+  'Enter a number from -999,999.999 to 999,999.999 with at most 3 decimal places.'
 
 /**
  * Validation message for a Goal value input (Req 6.7). Every `ParseError` code
@@ -70,6 +71,31 @@ export function commandErrorMessage(error: CommandError): string {
       return GOAL_VALUE_ERROR_MESSAGE
     case 'activity':
       return ''
+    case 'tags':
+      return tagErrorMessage(error.code)
+    case 'ratio':
+      return RATIO_ERROR_MESSAGE
+    case 'entry':
+      return ''
+  }
+}
+
+/** Message for a rejected Tag_Ratio (Req 16.9). */
+export const RATIO_ERROR_MESSAGE =
+  'Enter a ratio from 0.001 to 1,000 with at most 3 decimal places.'
+
+/** Message for a rejected tag (Req 14.3-14.6). */
+export function tagErrorMessage(code: TagError): string {
+  switch (code) {
+    case 'empty':
+      return 'A tag cannot be empty.'
+    case 'tooLong':
+    case 'invalidChar':
+      return 'Tags can be at most 30 characters and cannot contain commas or line breaks.'
+    case 'tooMany':
+      return 'An entry can have at most 3 tags.'
+    case 'duplicate':
+      return 'This tag is already attached.'
   }
 }
 

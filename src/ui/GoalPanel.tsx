@@ -234,7 +234,7 @@ function progressTextFor(
   goal: number,
   fmt: NumberDisplay,
 ): string {
-  const total = periodTotal(dataset.values, activityId, period)
+  const total = periodTotal(dataset, activityId, period)
   return fmt.progress(goalProgressTenths(total, goal))
 }
 
@@ -246,6 +246,6 @@ function statusTextFor(
   goal: number,
   today: LocalDate,
 ): string {
-  const total = periodTotal(dataset.values, activityId, period)
+  const total = periodTotal(dataset, activityId, period)
   return goalStatus(total, goal, period, today)
 }

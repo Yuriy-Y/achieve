@@ -22,6 +22,10 @@ const EMPTY_PATCH: Mutation = {
   deleteActivityIds: [],
   putDailyValues: [],
   putGoalVersions: [],
+  putTaggedValues: [],
+  deleteTaggedValues: [],
+  putTagRatios: [],
+  deleteTagRatioKeys: [],
 }
 
 /** Behaviour of a single transaction: stall forever, or complete on a macrotask. */

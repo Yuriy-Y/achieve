@@ -11,27 +11,29 @@
  * unrounded milli integers directly, so the status is always consistent with
  * the true total rather than with the rounded percentage (Req 7.6).
  */
-import type { DailyValueIndex } from './dataset'
+import { dayTotal, type Dataset } from './dataset'
 import type { LocalDate, Period } from './calendar'
 import { daysOf, periodEnd, compareDates } from './calendar'
 import type { Milli } from './decimal'
 
 /**
- * Period_Total of one Activity for a Period: the sum of its stored Daily_Values
- * over every Day of the Period (Req 4.2). Days without a stored value read as 0
+ * Period_Total of one Activity for a Period: the sum of its Day_Totals (untagged
+ * and tagged Daily_Entries) over every Day of the Period (Req 4.2, 14.16). Days without a stored value read as 0
  * (`dailyValue`), and imported future-dated values inside the Period are
  * included (Req 12.22).
  *
  * The sum stays an exact safe integer: the largest possible monthly total is
  * 31 x 999,999,999 milli, far below `Number.MAX_SAFE_INTEGER`.
  */
-export function periodTotal(values: DailyValueIndex, activityId: string, p: Period): Milli {
-  const activityValues = values.get(activityId)
-  if (activityValues === undefined) return 0
+export function periodTotal(
+  ds: Pick<Dataset, 'values' | 'taggedValues'>,
+  activityId: string,
+  p: Period,
+): Milli {
   let total = 0
   for (const date of daysOf(p)) {
-    // A Day with no stored value reads as 0 (Req 3.1).
-    total += activityValues.get(date) ?? 0
+    // A Day with no entries reads as 0 (Req 3.1); tagged entries count too (Req 14.16).
+    total += dayTotal(ds, activityId, date)
   }
   return total
 }
@@ -40,16 +42,20 @@ export function periodTotal(values: DailyValueIndex, activityId: string, p: Peri
  * Goal_Progress in tenths of a percent, rounded half away from zero (Req 7.2).
  * `475n` means 47.5 %. Display goes through `NumberDisplay.progress`.
  *
- * Progress in tenths is `total x 1000 / goal` (percent x 10). Both inputs are
- * non-negative, so half-away-from-zero equals half-up, computed exactly with
- * `BigInt` floor division as `(2 x total x 1000 + goal) / (2 x goal)`:
+ * Progress in tenths is `total x 1000 / goal` (percent x 10). The goal is
+ * positive and the total may be negative (Req 13). Half-away-from-zero is applied
+ * to the magnitude with exact `BigInt` floor division
+ * `(2 x |total| x 1000 + goal) / (2 x goal)` and the sign is restored:
  *   - a total of 0 gives `0n`, displayed as 0.0 % (Req 7.3);
  *   - results above 100 % (1000 tenths) are not capped (Req 7.4).
  */
 export function goalProgressTenths(total: Milli, goal: Milli): bigint {
-  const totalBig = BigInt(total)
+  // Round the magnitude half away from zero, then restore the sign (Req 7.2, 7.11).
+  // A negative total with a tiny magnitude rounds to 0n, shown as 0.0% (Req 7.12).
+  const magnitude = BigInt(Math.abs(total))
   const goalBig = BigInt(goal)
-  return (2n * totalBig * 1000n + goalBig) / (2n * goalBig)
+  const rounded = (2n * magnitude * 1000n + goalBig) / (2n * goalBig)
+  return total < 0 ? -rounded : rounded
 }
 
 /** The achievement state of a Period against its Effective_Goal. */

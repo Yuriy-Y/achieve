@@ -7,8 +7,8 @@
  * JSON text and back, and computes the Backup_File name.
  *
  * Design decisions honoured here:
- *   - Format marker `achievement-tracker-backup` and current format version 1
- *     (Req 12.1). Only versions in `SUPPORTED_BACKUP_FORMAT_VERSIONS` are read
+ *   - Format marker `achievement-tracker-backup` and current format version 2
+ *     (Req 12.1, 12.24); version 1 stays readable (Req 12.25). Only versions in `SUPPORTED_BACKUP_FORMAT_VERSIONS` are read
  *     (Req 12.10).
  *   - Values are serialised as strict three-decimal strings with
  *     `formatMilliFixed3` (Req 12.1): strings, not JSON numbers, keep the file
@@ -22,7 +22,7 @@
  *     12.7) and stops at the first problem (Req 12.9), checking: valid JSON,
  *     then the format marker and a positive integer version, then a supported
  *     version, then structure and the shared business rules via
- *     `validateDatasetRules(raw, 'fixed3')` (Req 12.8). Unknown extra fields
+ *     `validateDatasetRules(raw, 'fixed3', options)` (Req 12.8). Unknown extra fields
  *     are rejected (so a file from a newer format is never half-imported).
  *   - Future-dated Daily_Values and Goal_Versions are accepted; only the value
  *     and key rules apply (Req 12.21), which `datasetRules` already enforces.
@@ -32,7 +32,7 @@
  */
 
 import { compareDates, type GoalType, type PeriodKey } from './calendar'
-import type { Activity, DailyValue, Dataset, GoalVersion } from './dataset'
+import { allTaggedValues, type Activity, type DailyValue, type Dataset, type GoalVersion, type TaggedValue } from './dataset'
 import { formatMilliFixed3 } from './decimal'
 import { validateDatasetRules, type RawDataset } from './datasetRules'
 import { err, ok, type Result } from './result'
@@ -41,10 +41,10 @@ import { err, ok, type Result } from './result'
 export const BACKUP_FORMAT = 'achievement-tracker-backup'
 
 /** The Backup_Format_Version written by this App_Version (Req 12.1). */
-export const CURRENT_BACKUP_FORMAT_VERSION = 1
+export const CURRENT_BACKUP_FORMAT_VERSION = 2
 
 /** Backup_Format_Versions this App_Version can read (Req 12.10). */
-export const SUPPORTED_BACKUP_FORMAT_VERSIONS: readonly number[] = [1]
+export const SUPPORTED_BACKUP_FORMAT_VERSIONS: readonly number[] = [1, 2]
 
 /** Summary of a parsed Backup_File shown in the import confirmation (Req 12.11). */
 export interface BackupMeta {
@@ -87,7 +87,19 @@ interface GoalVersionJson {
   value?: string
 }
 
-/** Full Backup_File shape (format version 1). */
+/** Serialised tagged Daily_Entry (format version 2). */
+interface TaggedValueJson {
+  activityId: string
+  date: string
+  tags: string[]
+  value: string
+}
+/** Serialised Tag_Ratio (format version 2). */
+interface TagRatioJson {
+  tag: string
+  ratio: string
+}
+/** Full Backup_File shape (format version 2; version 1 has no tagged lists). */
 interface BackupJson {
   format: string
   formatVersion: number
@@ -95,6 +107,8 @@ interface BackupJson {
   activities: ActivityJson[]
   dailyValues: DailyValueJson[]
   goalVersions: GoalVersionJson[]
+  taggedValues: TaggedValueJson[]
+  tagRatios: TagRatioJson[]
 }
 
 /** Activities in stable creation order: `(createdAt, createdSeq)` ascending. */
@@ -122,6 +136,20 @@ function orderedDailyValues(ds: Dataset, activities: readonly Activity[]): Daily
     }
   }
   return result
+}
+
+/** Tagged entries by Activity creation order, then date, then comboKey. */
+function orderedTaggedValues(ds: Dataset, activities: readonly Activity[]): TaggedValue[] {
+  const rank = new Map<string, number>()
+  activities.forEach((a, i) => rank.set(a.id, i))
+  return allTaggedValues(ds.taggedValues)
+    .sort((a, b) => {
+      const r = (rank.get(a.entry.activityId) ?? 0) - (rank.get(b.entry.activityId) ?? 0)
+      if (r !== 0) return r
+      if (a.entry.date !== b.entry.date) return a.entry.date < b.entry.date ? -1 : 1
+      return a.comboKey < b.comboKey ? -1 : a.comboKey > b.comboKey ? 1 : 0
+    })
+    .map((x) => x.entry)
 }
 
 /** Weekly before monthly on ties, matching the design's stable order. */
@@ -177,6 +205,15 @@ export function serialiseBackup(ds: Dataset, exportedAt: Date): string {
       date: dv.date,
       value: formatMilliFixed3(dv.value),
     })),
+    taggedValues: orderedTaggedValues(ds, activities).map((e) => ({
+      activityId: e.activityId,
+      date: e.date,
+      tags: [...e.tags],
+      value: formatMilliFixed3(e.value),
+    })),
+    tagRatios: [...ds.tagRatios.values()]
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+      .map((r) => ({ tag: r.label, ratio: formatMilliFixed3(r.ratio) })),
     goalVersions: orderedGoalVersions(ds, activities).map((version) =>
       version.kind === 'set'
         ? {
@@ -226,15 +263,17 @@ function isIsoTimestamp(value: unknown): value is string {
   return !Number.isNaN(Date.parse(value))
 }
 
-/** Expected top-level field set of a Backup_File; no extra fields allowed. */
-const BACKUP_FIELDS = [
+/** Top-level fields of a format version 1 Backup_File; no extra fields allowed. */
+const BACKUP_FIELDS_V1: readonly string[] = [
   'format',
   'formatVersion',
   'exportedAt',
   'activities',
   'dailyValues',
   'goalVersions',
-] as const
+]
+/** Format version 2 adds the tagged entries and the Tag_Ratios (Req 12.24). */
+const BACKUP_FIELDS_V2: readonly string[] = [...BACKUP_FIELDS_V1, 'taggedValues', 'tagRatios']
 
 /**
  * Parse and validate a Backup_File string (Req 12.7-12.10). Checks run in a
@@ -245,7 +284,7 @@ const BACKUP_FIELDS = [
  *   3. `formatVersion` is supported, else `unsupportedVersion`.
  *   4. Top-level structure: exactly the expected fields, an ISO `exportedAt`,
  *      and `activities` / `dailyValues` / `goalVersions` arrays.
- *   5. Business rules via `validateDatasetRules(raw, 'fixed3')` (Req 12.8).
+ *   5. Business rules via `validateDatasetRules(raw, 'fixed3', options)` (Req 12.8).
  *
  * On success returns the import summary (`BackupMeta`) and the validated,
  * immutable `Dataset`. Nothing is mutated here; the caller decides whether to
@@ -278,13 +317,14 @@ export function parseBackup(
     return err({ code: 'unsupportedVersion', version })
   }
 
-  for (const key of BACKUP_FIELDS) {
+  const fields = version === 1 ? BACKUP_FIELDS_V1 : BACKUP_FIELDS_V2
+  for (const key of fields) {
     if (!Object.prototype.hasOwnProperty.call(parsed, key)) {
       return err({ code: 'invalid', problem: `missing field ${key}` })
     }
   }
   for (const key of Object.keys(parsed)) {
-    if (!BACKUP_FIELDS.includes(key as (typeof BACKUP_FIELDS)[number])) {
+    if (!fields.includes(key)) {
       return err({ code: 'invalid', problem: `unexpected field ${key}` })
     }
   }
@@ -308,8 +348,25 @@ export function parseBackup(
     dailyValues: parsed.dailyValues,
     goalVersions: parsed.goalVersions,
   }
+  if (version >= 2) {
+    if (!Array.isArray(parsed.taggedValues)) {
+      return err({ code: 'invalid', problem: 'taggedValues: must be an array' })
+    }
+    if (!Array.isArray(parsed.tagRatios)) {
+      return err({ code: 'invalid', problem: 'tagRatios: must be an array' })
+    }
+    raw.taggedValues = parsed.taggedValues
+    raw.tagRatios = parsed.tagRatios
+  }
 
-  const validated = validateDatasetRules(raw, 'fixed3')
+  // Version 1: non-negative values, no tagged lists. Version 2: signed, lists required.
+  const validated = validateDatasetRules(
+    raw,
+    'fixed3',
+    version === 1
+      ? { allowNegative: false, tagged: 'forbidden' }
+      : { allowNegative: true, tagged: 'required' },
+  )
   if (!validated.ok) {
     return err({ code: 'invalid', problem: validated.error.problem })
   }

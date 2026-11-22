@@ -63,7 +63,7 @@ function readWideViewport(): boolean {
  * @param positionCount the number of Day positions in the chart (7 or 28-31),
  *   used by `chartOrientation` to check the 44px-per-Day fit (Req 5.13, 5.15).
  */
-export function useChartLayout(positionCount: number): ChartLayout {
+export function useChartLayout(positionCount: number, seriesCount = 1): ChartLayout {
   const elementRef = useRef<HTMLElement | null>(null)
   const observerRef = useRef<ResizeObserver | null>(null)
   const [containerWidthPx, setContainerWidthPx] = useState(0)
@@ -123,7 +123,7 @@ export function useChartLayout(positionCount: number): ChartLayout {
     [observe, disconnect],
   )
 
-  const orientation = chartOrientation(isWideViewport, containerWidthPx, positionCount)
+  const orientation = chartOrientation(isWideViewport, containerWidthPx, positionCount, seriesCount)
 
   return { containerRef, orientation, isWideViewport, containerWidthPx }
 }

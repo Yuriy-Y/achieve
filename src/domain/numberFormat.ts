@@ -23,6 +23,8 @@ export interface NumberDisplay {
    * the value shown and trailing zero fraction digits dropped (Req 11.12).
    */
   value(v: Milli): string
+  /** Same as `value` for exact `bigint` milli amounts (weighted Analyser sums). */
+  valueBig(v: bigint): string
   /**
    * Goal_Progress from tenths of a percent: exactly one fraction digit followed
    * by the locale's percent sign (Req 7.1, 7.3, 11.13). `475n` -> "47.5%" in an
@@ -57,6 +59,9 @@ export function createNumberDisplay(locales: readonly string[] | undefined): Num
     value(v: Milli): string {
       return formatExact(valueFormat, milliDecimalString(v))
     },
+    valueBig(v: bigint): string {
+      return formatExact(valueFormat, milliBigDecimalString(v))
+    },
     progress(tenths: bigint): string {
       return formatExact(progressFormat, progressFractionString(tenths))
     },
@@ -88,6 +93,16 @@ export function milliDecimalString(v: Milli): string {
   }
 
   return negative ? `-${result}` : result
+}
+
+/** Exact decimal string for a `bigint` milli amount, e.g. `-1500n` -> "-1.5". */
+export function milliBigDecimalString(v: bigint): string {
+  const negative = v < 0n
+  const abs = negative ? -v : v
+  const integerPart = abs / 1000n
+  const fractionPart = abs % 1000n
+  const fraction = fractionPart === 0n ? '' : `.${fractionPart.toString().padStart(3, '0').replace(/0+$/, '')}`
+  return `${negative ? '-' : ''}${integerPart.toString()}${fraction}`
 }
 
 /**

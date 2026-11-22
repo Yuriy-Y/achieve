@@ -22,6 +22,7 @@
  *   - Daily_Value: references a contained Activity; valid `LocalDate`; value in
  *     DAILY_MIN..DAILY_MAX with at most 3 decimals; at most one per
  *     (activityId, date). Dates after today are accepted (Req 12.21).
+ *   - Tagged Daily_Entry and Tag_Ratio rules (Req 14.21, 16.8), see `validateTagged`.
  *   - Goal_Version: references a contained Activity; `goalType` is `weekly` or
  *     `monthly`; `startPeriod` valid for its type; `kind` is `set` with a value
  *     in GOAL_MIN..GOAL_MAX or `removal` without a value; at most one per
@@ -39,9 +40,19 @@ import {
   type LocalDate,
   type PeriodKey,
 } from './calendar'
-import { DAILY_MAX, DAILY_MIN, GOAL_MAX, GOAL_MIN, parseFixed3, type Milli } from './decimal'
-import type { Activity, Dataset, DailyValue, GoalVersion } from './dataset'
-import { setDailyValue } from './dataset'
+import {
+  DAILY_MAX,
+  DAILY_MIN,
+  GOAL_MAX,
+  GOAL_MIN,
+  RATIO_MAX,
+  RATIO_MIN,
+  parseFixed3,
+  type Milli,
+} from './decimal'
+import type { Activity, Dataset, DailyValue, GoalVersion, TaggedValue, TagRatio } from './dataset'
+import { setDailyValue, setTaggedValue } from './dataset'
+import { comboKey, tagKey, validateTag, TAGS_PER_ENTRY_MAX } from './tags'
 import { validateActivityName } from './names'
 import { err, ok, type Result } from './result'
 
@@ -50,6 +61,22 @@ export interface RawDataset {
   activities: unknown[]
   dailyValues: unknown[]
   goalVersions: unknown[]
+  /** Tagged Daily_Entries; absent in legacy storage and in Backup format 1. */
+  taggedValues?: unknown[]
+  /** Global Tag_Ratios; absent in legacy storage and in Backup format 1. */
+  tagRatios?: unknown[]
+}
+
+/**
+ * Which extension features a source may contain.
+ * - `allowNegative`: Daily_Values below zero (Backup format 2, storage).
+ * - `tagged`: `'forbidden'` (Backup format 1: the lists must be absent),
+ *   `'optional'` (storage: absent or empty stores allowed), `'required'`
+ *   (Backup format 2: both lists must be present arrays).
+ */
+export interface RuleOptions {
+  allowNegative: boolean
+  tagged: 'forbidden' | 'optional' | 'required'
 }
 
 /** How a Daily_Value / Goal_Version `value` field is encoded in the source. */
@@ -115,6 +142,7 @@ function decodeValue(
   codec: ValueCodec,
   min: Milli,
   max: Milli,
+  allowNegative = false,
 ): Result<Milli, string> {
   let value: Milli
   if (codec === 'milli') {
@@ -126,7 +154,7 @@ function decodeValue(
     if (typeof raw !== 'string') {
       return err('value must be a 3-decimal string')
     }
-    const parsed = parseFixed3(raw)
+    const parsed = parseFixed3(raw, allowNegative)
     if (!parsed.ok) {
       return err('value is not a valid 3-decimal number')
     }
@@ -221,6 +249,7 @@ function validateDailyValues(
   rawDailyValues: unknown[],
   activityIds: Set<string>,
   codec: ValueCodec,
+  allowNegative: boolean,
 ): Result<DailyValue[], RuleViolation> {
   const dailyValues: DailyValue[] = []
   const seenKeys = new Set<string>()
@@ -244,7 +273,7 @@ function validateDailyValues(
       return err({ problem: `${path}.date: must be a valid YYYY-MM-DD date` })
     }
 
-    const decoded = decodeValue(value, codec, DAILY_MIN, DAILY_MAX)
+    const decoded = decodeValue(value, codec, allowNegative ? DAILY_MIN : 0, DAILY_MAX, allowNegative)
     if (!decoded.ok) {
       return err({ problem: `${path}.value: ${decoded.error}` })
     }
@@ -338,6 +367,115 @@ function validateGoalVersions(
   return ok(goalVersions)
 }
 
+const TAGGED_STORE_FIELDS = ['activityId', 'date', 'comboKey', 'tags', 'value'] as const
+const TAGGED_FILE_FIELDS = ['activityId', 'date', 'tags', 'value'] as const
+const RATIO_STORE_FIELDS = ['key', 'label', 'ratio'] as const
+const RATIO_FILE_FIELDS = ['tag', 'ratio'] as const
+
+/**
+ * Validate tagged Daily_Entries and Tag_Ratios (Req 14.21, 16.8, 12.27).
+ * Enforces per entry: known Activity, valid date, value in range, 1-3 valid
+ * tags unique by `tagKey`, at most one entry per (activityId, date, comboKey);
+ * per ratio: valid tag, ratio in range, one per tag; and one spelling per
+ * `tagKey` across entries and ratios.
+ */
+function validateTagged(
+  rawTagged: unknown[],
+  rawRatios: unknown[],
+  activityIds: Set<string>,
+  codec: ValueCodec,
+): Result<{ tagged: TaggedValue[]; ratios: TagRatio[] }, RuleViolation> {
+  const tagged: TaggedValue[] = []
+  const seen = new Set<string>()
+  const spelling = new Map<string, string>()
+
+  const checkSpelling = (tag: string, path: string): string | null => {
+    const key = tagKey(tag)
+    const existing = spelling.get(key)
+    if (existing !== undefined && existing !== tag) {
+      return `${path}: tag spelled differently from "${existing}"`
+    }
+    spelling.set(key, tag)
+    return null
+  }
+
+  for (let i = 0; i < rawTagged.length; i += 1) {
+    const path = `taggedValues[${i}]`
+    const raw = rawTagged[i]
+    if (!isRecord(raw)) return err({ problem: `${path}: not an object` })
+    const fields = codec === 'milli' ? TAGGED_STORE_FIELDS : TAGGED_FILE_FIELDS
+    const fieldProblem = checkExactFields(raw, fields, path)
+    if (fieldProblem !== null) return err({ problem: fieldProblem })
+
+    const { activityId, date, tags, value } = raw
+    if (typeof activityId !== 'string' || !activityIds.has(activityId)) {
+      return err({ problem: `${path}.activityId: references an unknown activity` })
+    }
+    if (typeof date !== 'string' || !isValidLocalDate(date)) {
+      return err({ problem: `${path}.date: must be a valid YYYY-MM-DD date` })
+    }
+    if (!Array.isArray(tags) || tags.length < 1 || tags.length > TAGS_PER_ENTRY_MAX) {
+      return err({ problem: `${path}.tags: must be 1 to ${TAGS_PER_ENTRY_MAX} tags` })
+    }
+    const keys = new Set<string>()
+    for (let t = 0; t < tags.length; t += 1) {
+      const tag: unknown = tags[t]
+      const valid = typeof tag === 'string' ? validateTag(tag) : null
+      if (valid === null || !valid.ok || valid.value !== tag) {
+        return err({ problem: `${path}.tags[${t}]: not a valid tag` })
+      }
+      const key = tagKey(valid.value)
+      if (keys.has(key)) return err({ problem: `${path}.tags[${t}]: duplicate tag` })
+      keys.add(key)
+      const clash = checkSpelling(valid.value, `${path}.tags[${t}]`)
+      if (clash !== null) return err({ problem: clash })
+    }
+    const tagList = tags as string[]
+    const combo = comboKey(tagList)
+    if (codec === 'milli' && raw.comboKey !== combo) {
+      return err({ problem: `${path}.comboKey: does not match tags` })
+    }
+    const decoded = decodeValue(value, codec, DAILY_MIN, DAILY_MAX, true)
+    if (!decoded.ok) return err({ problem: `${path}.value: ${decoded.error}` })
+    const entryKey = `${activityId}\u0000${date}\u0000${combo}`
+    if (seen.has(entryKey)) {
+      return err({ problem: `${path}: duplicate entry for (activityId, date, tags)` })
+    }
+    seen.add(entryKey)
+    tagged.push({ activityId, date, tags: [...tagList], value: decoded.value })
+  }
+
+  const ratios: TagRatio[] = []
+  const ratioKeys = new Set<string>()
+  for (let i = 0; i < rawRatios.length; i += 1) {
+    const path = `tagRatios[${i}]`
+    const raw = rawRatios[i]
+    if (!isRecord(raw)) return err({ problem: `${path}: not an object` })
+    const fields = codec === 'milli' ? RATIO_STORE_FIELDS : RATIO_FILE_FIELDS
+    const fieldProblem = checkExactFields(raw, fields, path)
+    if (fieldProblem !== null) return err({ problem: fieldProblem })
+
+    const label: unknown = codec === 'milli' ? raw.label : raw.tag
+    const valid = typeof label === 'string' ? validateTag(label) : null
+    if (valid === null || !valid.ok || valid.value !== label) {
+      return err({ problem: `${path}.${codec === 'milli' ? 'label' : 'tag'}: not a valid tag` })
+    }
+    const key = tagKey(valid.value)
+    if (codec === 'milli' && raw.key !== key) {
+      return err({ problem: `${path}.key: does not match the tag` })
+    }
+    if (ratioKeys.has(key)) return err({ problem: `${path}: duplicate ratio for tag` })
+    ratioKeys.add(key)
+    const clash = checkSpelling(valid.value, path)
+    if (clash !== null) return err({ problem: clash })
+    const decoded = decodeValue(raw.ratio, codec, RATIO_MIN, RATIO_MAX)
+    if (!decoded.ok) return err({ problem: `${path}.ratio: ${decoded.error.replace('value', 'ratio')}` })
+    // A stored 1.000 is accepted on import and normalised away (it equals "no ratio").
+    if (decoded.value !== 1000) ratios.push({ key, label: valid.value, ratio: decoded.value })
+  }
+  return ok({ tagged, ratios })
+}
+
 /**
  * Validate a RawDataset against the shared integrity rules and, on success,
  * build the immutable `Dataset`. Checks run in record order (Activities, then
@@ -351,6 +489,7 @@ function validateGoalVersions(
 export function validateDatasetRules(
   raw: RawDataset,
   valueCodec: ValueCodec,
+  options: RuleOptions,
 ): Result<Dataset, RuleViolation> {
   if (!Array.isArray(raw.activities)) {
     return err({ problem: 'activities: must be an array' })
@@ -362,15 +501,28 @@ export function validateDatasetRules(
     return err({ problem: 'goalVersions: must be an array' })
   }
 
+  if (options.tagged === 'forbidden') {
+    if (raw.taggedValues !== undefined) return err({ problem: 'taggedValues: not allowed in this format' })
+    if (raw.tagRatios !== undefined) return err({ problem: 'tagRatios: not allowed in this format' })
+  } else if (options.tagged === 'required') {
+    if (!Array.isArray(raw.taggedValues)) return err({ problem: 'taggedValues: must be an array' })
+    if (!Array.isArray(raw.tagRatios)) return err({ problem: 'tagRatios: must be an array' })
+  }
+  const rawTagged = raw.taggedValues ?? []
+  const rawRatios = raw.tagRatios ?? []
+
   const activitiesResult = validateActivities(raw.activities)
   if (!activitiesResult.ok) return err(activitiesResult.error)
   const { activities, ids } = activitiesResult.value
 
-  const dailyValuesResult = validateDailyValues(raw.dailyValues, ids, valueCodec)
+  const dailyValuesResult = validateDailyValues(raw.dailyValues, ids, valueCodec, options.allowNegative)
   if (!dailyValuesResult.ok) return err(dailyValuesResult.error)
 
   const goalVersionsResult = validateGoalVersions(raw.goalVersions, ids, valueCodec)
   if (!goalVersionsResult.ok) return err(goalVersionsResult.error)
+
+  const taggedResult = validateTagged(rawTagged, rawRatios, ids, valueCodec)
+  if (!taggedResult.ok) return err(taggedResult.error)
 
   // Build the immutable Daily_Value index with structural-sharing helpers.
   let values = new Map() as Dataset['values']
@@ -378,9 +530,17 @@ export function validateDatasetRules(
     values = setDailyValue(values, dv.activityId, dv.date, dv.value)
   }
 
+  let taggedValues = new Map() as Dataset['taggedValues']
+  for (const entry of taggedResult.value.tagged) {
+    taggedValues = setTaggedValue(taggedValues, entry, comboKey(entry.tags))
+  }
+  const tagRatios = new Map(taggedResult.value.ratios.map((r) => [r.key, r]))
+
   return ok({
     activities,
     values,
+    taggedValues,
+    tagRatios,
     goalVersions: goalVersionsResult.value,
   })
 }

@@ -98,6 +98,7 @@ export function QuickEntry({
   return (
     <form className="quick-entry" onSubmit={handleSubmit} aria-label={`Record today for ${activityName}`}>
       <DecimalInput
+        allowNegative
         label={`Today's value for ${activityName}`}
         value={text}
         onChange={handleChange}

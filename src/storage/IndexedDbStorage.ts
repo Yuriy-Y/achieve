@@ -9,9 +9,11 @@
  * window of the Tracker is never blocked by an idle connection here (design:
  * Persistence — connection handling).
  *
- * Database `achievement-tracker` (DB_NAME) at version 1 (DB_VERSION) holds four
+ * Database `achievement-tracker` (DB_NAME) at version 2 (DB_VERSION) holds six
  * object stores created in `onupgradeneeded`: `meta` (schema version), and the
- * three data stores `activities`, `dailyValues`, `goalVersions` with the
+ * five data stores `activities`, `dailyValues`, `goalVersions`, `taggedValues`,
+ * `tagRatios` (the last two added in version 2; upgrading from version 1 only
+ * creates them empty and rewrites nothing) with the
  * compound key paths from `records.ts` (KEY_PATHS) that enforce the
  * one-per-key invariants I3. A single `meta` schema record is written on store
  * creation.
@@ -26,13 +28,19 @@ import {
   DATA_STORES,
   DB_NAME,
   DB_VERSION,
+  ACCEPTED_SCHEMA_VERSIONS,
   KEY_PATHS,
+  LOAD_RULE_OPTIONS,
   META_KEY,
   STORE_ACTIVITIES,
   STORE_DAILY_VALUES,
   STORE_GOAL_VERSIONS,
   STORE_META,
+  STORE_TAGGED_VALUES,
+  STORE_TAG_RATIOS,
   datasetToRecords,
+  tagRatioToRecord,
+  taggedValueToRecord,
   schemaMetaRecord,
   toRawDataset,
   validateDatasetRules,
@@ -159,17 +167,18 @@ export class IndexedDbStorage implements StoragePort {
         return
       }
 
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (event) => {
         const db = request.result
         for (const store of ALL_STORES) {
           if (!db.objectStoreNames.contains(store)) {
             db.createObjectStore(store, { keyPath: KEY_PATHS[store] as string | string[] })
           }
         }
-        // Seed the schema record inside the upgrade transaction so a freshly
-        // created database already identifies its schema version.
+        // Seed the schema record only for a brand-new database. An upgrade from
+        // version 1 only adds the two empty stores; no existing record is read,
+        // rewritten or deleted (Req 17.2).
         const tx = request.transaction
-        if (tx !== null) {
+        if (tx !== null && event.oldVersion === 0) {
           tx.objectStore(STORE_META).put(schemaMetaRecord())
         }
       }
@@ -232,6 +241,8 @@ export class IndexedDbStorage implements StoragePort {
       let activities: unknown[]
       let dailyValues: unknown[]
       let goalVersions: unknown[]
+      let taggedValues: unknown[]
+      let tagRatios: unknown[]
       try {
         const tx = db.transaction(ALL_STORES as unknown as string[], 'readonly')
         meta = await requestToPromise(
@@ -246,25 +257,38 @@ export class IndexedDbStorage implements StoragePort {
         goalVersions = await requestToPromise(
           tx.objectStore(STORE_GOAL_VERSIONS).getAll() as IDBRequest<unknown[]>,
         )
+        taggedValues = await requestToPromise(
+          tx.objectStore(STORE_TAGGED_VALUES).getAll() as IDBRequest<unknown[]>,
+        )
+        tagRatios = await requestToPromise(
+          tx.objectStore(STORE_TAG_RATIOS).getAll() as IDBRequest<unknown[]>,
+        )
       } catch (error) {
         return { status: 'unreadable', reason: describe(error, 'The saved data could not be read') }
       }
 
       // An unknown schema version is unreadable: a database written by a newer
       // App_Version (or a corrupt/missing meta record) is left untouched.
-      if (meta === undefined || meta.version !== DB_VERSION) {
+      if (meta === undefined || !ACCEPTED_SCHEMA_VERSIONS.includes(meta.version)) {
         return { status: 'unreadable', reason: 'The saved data uses an unknown schema version' }
       }
 
       // No records at all: start with an empty Data_Set and no error (Req 9.5).
-      if (activities.length === 0 && dailyValues.length === 0 && goalVersions.length === 0) {
+      if (
+        activities.length === 0 &&
+        dailyValues.length === 0 &&
+        goalVersions.length === 0 &&
+        taggedValues.length === 0 &&
+        tagRatios.length === 0
+      ) {
         return { status: 'empty' }
       }
 
       // Validate the raw records with the load codec (integer milli values).
       const result = validateDatasetRules(
-        toRawDataset(activities, dailyValues, goalVersions),
+        toRawDataset(activities, dailyValues, goalVersions, taggedValues, tagRatios),
         'milli',
+        LOAD_RULE_OPTIONS,
       )
       if (!result.ok) {
         return { status: 'unreadable', reason: result.error.problem }
@@ -435,6 +459,8 @@ function applyPatch(
   const activitiesStore = tx.objectStore(STORE_ACTIVITIES)
   const dailyValuesStore = tx.objectStore(STORE_DAILY_VALUES)
   const goalVersionsStore = tx.objectStore(STORE_GOAL_VERSIONS)
+  const taggedStore = tx.objectStore(STORE_TAGGED_VALUES)
+  const ratiosStore = tx.objectStore(STORE_TAG_RATIOS)
 
   // Deletes first so a delete + re-put of the same Activity keeps the puts.
   for (const activityId of mutation.deleteActivityIds) {
@@ -443,6 +469,13 @@ function applyPatch(
     // every (activityId, *) record (IDBKeyRange, design: Persistence).
     dailyValuesStore.delete(IDBKeyRange.bound([activityId], [activityId, []]))
     goalVersionsStore.delete(IDBKeyRange.bound([activityId], [activityId, []]))
+    taggedStore.delete(IDBKeyRange.bound([activityId], [activityId, []]))
+  }
+  for (const key of mutation.deleteTaggedValues) {
+    taggedStore.delete([key.activityId, key.date, key.comboKey])
+  }
+  for (const key of mutation.deleteTagRatioKeys) {
+    ratiosStore.delete(key)
   }
 
   for (const activity of mutation.putActivities) {
@@ -453,6 +486,12 @@ function applyPatch(
   }
   for (const goalVersion of mutation.putGoalVersions) {
     goalVersionsStore.put(goalVersion)
+  }
+  for (const entry of mutation.putTaggedValues) {
+    taggedStore.put(taggedValueToRecord(entry))
+  }
+  for (const ratio of mutation.putTagRatios) {
+    ratiosStore.put(tagRatioToRecord(ratio))
   }
 }
 
@@ -466,10 +505,14 @@ function applyReplaceAll(tx: IDBTransaction, dataset: Dataset): void {
   const activitiesStore = tx.objectStore(STORE_ACTIVITIES)
   const dailyValuesStore = tx.objectStore(STORE_DAILY_VALUES)
   const goalVersionsStore = tx.objectStore(STORE_GOAL_VERSIONS)
+  const taggedStore = tx.objectStore(STORE_TAGGED_VALUES)
+  const ratiosStore = tx.objectStore(STORE_TAG_RATIOS)
 
   activitiesStore.clear()
   dailyValuesStore.clear()
   goalVersionsStore.clear()
+  taggedStore.clear()
+  ratiosStore.clear()
 
   const records = datasetToRecords(dataset)
   for (const activity of records.activities) {
@@ -480,6 +523,12 @@ function applyReplaceAll(tx: IDBTransaction, dataset: Dataset): void {
   }
   for (const goalVersion of records.goalVersions) {
     goalVersionsStore.put(goalVersion)
+  }
+  for (const entry of records.taggedValues) {
+    taggedStore.put(entry)
+  }
+  for (const ratio of records.tagRatios) {
+    ratiosStore.put(ratio)
   }
 
   tx.objectStore(STORE_META).put(schemaMetaRecord())

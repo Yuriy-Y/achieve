@@ -32,6 +32,9 @@ import type { ActivityRowModel, GoalSummary } from '../domain/viewModels'
 import type { LocalDate } from '../domain/calendar'
 import type { NumberDisplay } from '../domain/numberFormat'
 import type { CommandResult } from '../state/TrackerStore'
+import { useState } from 'react'
+import { useTrackerSnapshot } from '../state/useTracker'
+import { EntryEditor } from './EntryEditor'
 import { QuickEntry } from './QuickEntry'
 
 /** Props for {@link ActivityRow}. */
@@ -74,6 +77,12 @@ export function ActivityRow({
   onRename,
   onDelete,
 }: ActivityRowProps): ReactElement {
+  const snapshot = useTrackerSnapshot()
+  const [editorOpen, setEditorOpen] = useState(false)
+  // Quick entry records the untagged entry; the row button shows the Day_Total
+  // (untagged plus tagged entries), so it must not be used as the input prefill.
+  const untaggedToday =
+    snapshot.load.phase === 'ready' ? (snapshot.load.dataset.values.get(row.id)?.get(today) ?? 0) : 0
   return (
     <li className="activity-row">
       <div className="activity-row-main">
@@ -82,7 +91,7 @@ export function ActivityRow({
         <button
           type="button"
           className="activity-row-today"
-          aria-label={`Today's value for ${row.name}: ${numberDisplay.value(row.todayValue)}. Tap to record.`}
+          aria-label={`Today's total for ${row.name}: ${numberDisplay.value(row.todayValue)}. Tap to record.`}
           aria-expanded={quickEntryOpen}
           onClick={() => onOpenQuickEntry(row.id)}
         >
@@ -134,10 +143,26 @@ export function ActivityRow({
           activityId={row.id}
           activityName={row.name}
           today={today}
-          todayValue={row.todayValue}
+          todayValue={untaggedToday}
           onRecord={onRecord}
-          onClose={onCloseQuickEntry}
+          onClose={() => {
+            setEditorOpen(false)
+            onCloseQuickEntry()
+          }}
         />
+      ) : null}
+      {quickEntryOpen ? (
+        <div className="activity-row-more">
+          <button
+            type="button"
+            className="activity-row-action"
+            aria-expanded={editorOpen}
+            onClick={() => setEditorOpen((open) => !open)}
+          >
+            Tags and more entries
+          </button>
+          {editorOpen ? <EntryEditor activityId={row.id} date={today} /> : null}
+        </div>
       ) : null}
     </li>
   )

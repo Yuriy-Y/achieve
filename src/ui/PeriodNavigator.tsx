@@ -22,14 +22,13 @@
 
 import type { ReactElement } from 'react'
 
-import type { GoalType } from '../domain/calendar'
 
 /** Props for {@link PeriodNavigator}. */
 export interface PeriodNavigatorProps {
   /** The chart title for the selected Period (Week range or Month name). */
   title: string
-  /** The selected view type, used to word the navigation labels. */
-  viewType: GoalType
+  /** What one step moves by, used to word the navigation labels ("week", "12 weeks", ...). */
+  unit: string
   /** Whether the next-Period button is enabled (false at the Current_Period, Req 5.10). */
   canGoNext: boolean
   /** Move to the adjacent Period; wired to `navigate(period, dir, today)`. */
@@ -43,11 +42,10 @@ export interface PeriodNavigatorProps {
  */
 export function PeriodNavigator({
   title,
-  viewType,
+  unit,
   canGoNext,
   onNavigate,
 }: PeriodNavigatorProps): ReactElement {
-  const unit = viewType === 'weekly' ? 'week' : 'month'
 
   return (
     <div className="period-navigator">

@@ -14,7 +14,14 @@
  * I/O.
  */
 
-import type { Activity, DailyValue, Dataset, GoalVersion } from '../domain/dataset'
+import type {
+  Activity,
+  DailyValue,
+  Dataset,
+  GoalVersion,
+  TaggedValue,
+  TagRatio,
+} from '../domain/dataset'
 
 /**
  * The storage mutation a committed command must persist (design: Persistence).
@@ -37,6 +44,11 @@ export type Mutation =
       deleteActivityIds: string[]
       putDailyValues: DailyValue[]
       putGoalVersions: GoalVersion[]
+      /** Tagged Daily_Entries (stored under their `comboKey`). */
+      putTaggedValues: TaggedValue[]
+      deleteTaggedValues: { activityId: string; date: string; comboKey: string }[]
+      putTagRatios: TagRatio[]
+      deleteTagRatioKeys: string[]
     }
   | { kind: 'replaceAll'; dataset: Dataset }
 

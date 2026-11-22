@@ -7,7 +7,7 @@
  * (Req 11.7) and the content max-width (Req 11.8).
  *
  * The two theme colours mirror the <meta name="theme-color"> values in
- * index.html: light #1f6feb, dark #0d1117.
+ * index.html: light #185e45, dark #0d1117.
  *
  * No value here depends on JavaScript; the theme follows the OS colour-scheme
  * preference through the media query only (Req 11.9–11.11).
@@ -68,7 +68,7 @@
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.18);
 
   /* ---- Brand theme colour (matches index.html theme-color metas) ---- */
-  --theme-color-light: #1f6feb;
+  --theme-color-light: #185e45;
   --theme-color-dark: #0d1117;
 
   /* ---- Colour tokens: light theme (default) ----
@@ -84,8 +84,9 @@
   --color-text-muted: #57606a;
   --color-text-inverse: #ffffff;
 
-  --color-accent: #1f6feb;
-  --color-accent-hover: #1a5fd0;
+  /* App icon green (icon background runs from #09382d to #185e45). */
+  --color-accent: #185e45;
+  --color-accent-hover: #113c31;
   --color-accent-contrast: #ffffff;
 
   --color-focus-ring: #0969da;
@@ -98,11 +99,20 @@
   --color-warning: #9a6700;
 
   /* Chart */
-  --color-chart-bar: #1f6feb;
+  --color-chart-bar: #185e45;
+  --color-negative: #c8372d;
   --color-chart-track: #eaeef2;
-  --color-chart-goal-line: #cf222e;
+  --color-chart-goal-line: #9a6700;
   --color-chart-future: #8c959f;
   --color-chart-axis: #afb8c1;
+  /* Up to 6 comparable series (Analyser); 3:1 against the background (Req 11.9) */
+  --color-series-0: #185e45;
+  --color-series-1: #1f6feb;
+  --color-series-2: #8250df;
+  --color-series-3: #bc4c00;
+  --color-series-4: #57606a;
+  --color-series-5: #7d6608;
+  --color-chart-mark: #ffffff;
 
   /* Overlays */
   --color-backdrop: rgba(27, 31, 36, 0.5);
@@ -129,9 +139,9 @@
     --color-text-muted: #9198a1;
     --color-text-inverse: #0d1117;
 
-    --color-accent: #4493f8;
-    --color-accent-hover: #58a6ff;
-    --color-accent-contrast: #0d1117;
+    --color-accent: #93e7c6;
+    --color-accent-hover: #b0f0d8;
+    --color-accent-contrast: #09382d;
 
     --color-focus-ring: #58a6ff;
 
@@ -142,11 +152,19 @@
     --color-success: #3fb950;
     --color-warning: #d29922;
 
-    --color-chart-bar: #4493f8;
+    --color-chart-bar: #5fd0a5;
+    --color-negative: #ff7b72;
     --color-chart-track: #21262d;
-    --color-chart-goal-line: #f85149;
+    --color-chart-goal-line: #d29922;
     --color-chart-future: #6e7681;
     --color-chart-axis: #484f58;
+    --color-series-0: #5fd0a5;
+    --color-series-1: #4493f8;
+    --color-series-2: #a371f7;
+    --color-series-3: #f0883e;
+    --color-series-4: #8b949e;
+    --color-series-5: #c9b458;
+    --color-chart-mark: #0d1117;
 
     --color-backdrop: rgba(1, 4, 9, 0.7);
 

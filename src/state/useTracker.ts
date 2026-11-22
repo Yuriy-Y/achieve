@@ -87,7 +87,16 @@ export interface TrackerActions {
   /** Delete an Activity and cascade to its values and goals (Req 1.9). */
   deleteActivity(activityId: string): Promise<CommandResult>
   /** Record or edit a Daily_Value for a Day (Req 3.2, 4.1). */
-  recordValue(activityId: string, date: LocalDate, value: string): Promise<CommandResult>
+  recordValue(
+    activityId: string,
+    date: LocalDate,
+    value: string,
+    tags?: string[],
+  ): Promise<CommandResult>
+  /** Remove one tagged Daily_Entry (Req 14.15). */
+  removeEntry(activityId: string, date: LocalDate, tags: string[]): Promise<CommandResult>
+  /** Set a global Tag_Ratio; "1" removes it (Req 16.8). */
+  setTagRatio(tag: string, ratio: string): Promise<CommandResult>
   /** Set or change a weekly/monthly goal (Req 6.5, 6.6, 8.1, 8.2). */
   setGoal(activityId: string, goalType: GoalType, value: string): Promise<CommandResult>
   /** Remove a weekly/monthly goal (Req 8.4, 8.5). */
@@ -121,8 +130,17 @@ export function useTrackerActions(): TrackerActions {
     [store],
   )
   const recordValue = useCallback(
-    (activityId: string, date: LocalDate, value: string) =>
-      store.dispatch({ kind: 'recordValue', activityId, date, value }),
+    (activityId: string, date: LocalDate, value: string, tags?: string[]) =>
+      store.dispatch({ kind: 'recordValue', activityId, date, value, tags }),
+    [store],
+  )
+  const removeEntry = useCallback(
+    (activityId: string, date: LocalDate, tags: string[]) =>
+      store.dispatch({ kind: 'removeEntry', activityId, date, tags }),
+    [store],
+  )
+  const setTagRatio = useCallback(
+    (tag: string, ratio: string) => store.dispatch({ kind: 'setTagRatio', tag, ratio }),
     [store],
   )
   const setGoal = useCallback(
@@ -147,6 +165,8 @@ export function useTrackerActions(): TrackerActions {
       renameActivity,
       deleteActivity,
       recordValue,
+      removeEntry,
+      setTagRatio,
       setGoal,
       removeGoal,
       importDataset,
@@ -157,6 +177,8 @@ export function useTrackerActions(): TrackerActions {
       renameActivity,
       deleteActivity,
       recordValue,
+      removeEntry,
+      setTagRatio,
       setGoal,
       removeGoal,
       importDataset,

@@ -60,15 +60,142 @@ export type GoalVersion =
 /** activityId -> (date -> value). A missing entry means 0 (Req 3.1). */
 export type DailyValueIndex = ReadonlyMap<string, ReadonlyMap<LocalDate, Milli>>
 
+/**
+ * A tagged Daily_Entry (Req 14): the value of one Activity on one Day for a
+ * non-empty Tag_Combination. The untagged entry is the legacy `DailyValue`.
+ * `tags` holds 1-3 canonical spellings in the order the user attached them.
+ */
+export interface TaggedValue {
+  activityId: string
+  date: LocalDate
+  tags: readonly string[]
+  /** integer, DAILY_MIN..DAILY_MAX */
+  value: Milli
+}
+
+/** activityId -> date -> comboKey -> tagged entry. */
+export type TaggedIndex = ReadonlyMap<string, ReadonlyMap<LocalDate, ReadonlyMap<string, TaggedValue>>>
+
+/** Global Tag_Ratio of one Tag in milli (1..1_000_000); absent means 1.000 (Req 16.8). */
+export interface TagRatio {
+  /** `tagKey` of the Tag */
+  key: string
+  /** canonical spelling */
+  label: string
+  ratio: Milli
+}
+
 export interface Dataset {
   activities: readonly Activity[]
+  /** Untagged Daily_Entries, exactly the previous version's Daily_Values. */
   values: DailyValueIndex
+  /** Tagged Daily_Entries (Req 14). */
+  taggedValues: TaggedIndex
+  /** Global Tag_Ratios by `tagKey`; only ratios different from 1 are stored. */
+  tagRatios: ReadonlyMap<string, TagRatio>
   goalVersions: readonly GoalVersion[]
 }
 
-/** The empty Data_Set: no Activities, no Daily_Values, no Goal_Versions. */
+/** The empty Data_Set: no Activities, no entries, no ratios, no Goal_Versions. */
 export function emptyDataset(): Dataset {
-  return { activities: [], values: new Map(), goalVersions: [] }
+  return {
+    activities: [],
+    values: new Map(),
+    taggedValues: new Map(),
+    tagRatios: new Map(),
+    goalVersions: [],
+  }
+}
+
+/** One Daily_Entry of a Day as shown to the user: tags empty for the untagged entry. */
+export interface EntryView {
+  tags: readonly string[]
+  value: Milli
+}
+
+/**
+ * Day_Total: the untagged value plus every tagged entry of one Activity on one
+ * Day (Req 14.16). A Day without entries reads as 0 (Req 3.1).
+ */
+export function dayTotal(
+  ds: Pick<Dataset, 'values' | 'taggedValues'>,
+  activityId: string,
+  date: LocalDate,
+): Milli {
+  let total = ds.values.get(activityId)?.get(date) ?? 0
+  const tagged = ds.taggedValues.get(activityId)?.get(date)
+  if (tagged !== undefined) for (const entry of tagged.values()) total += entry.value
+  return total
+}
+
+/**
+ * The Day's entries: the untagged entry first (only when stored), then tagged
+ * entries in `comboKey` order, so the list is stable.
+ */
+export function dayEntries(
+  ds: Pick<Dataset, 'values' | 'taggedValues'>,
+  activityId: string,
+  date: LocalDate,
+): EntryView[] {
+  const out: EntryView[] = []
+  const untagged = ds.values.get(activityId)?.get(date)
+  if (untagged !== undefined) out.push({ tags: [], value: untagged })
+  const tagged = ds.taggedValues.get(activityId)?.get(date)
+  if (tagged !== undefined) {
+    for (const key of [...tagged.keys()].sort()) {
+      const entry = tagged.get(key)
+      if (entry !== undefined) out.push({ tags: entry.tags, value: entry.value })
+    }
+  }
+  return out
+}
+
+/** Immutable upsert of a tagged entry under its `comboKey`. */
+export function setTaggedValue(index: TaggedIndex, entry: TaggedValue, comboKey: string): TaggedIndex {
+  const next = new Map(index)
+  const byDate = new Map(next.get(entry.activityId) ?? [])
+  const byCombo = new Map(byDate.get(entry.date) ?? [])
+  byCombo.set(comboKey, entry)
+  byDate.set(entry.date, byCombo)
+  next.set(entry.activityId, byDate)
+  return next
+}
+
+/** Immutable removal of one tagged entry; prunes emptied inner maps. */
+export function deleteTaggedValue(
+  index: TaggedIndex,
+  activityId: string,
+  date: LocalDate,
+  comboKey: string,
+): TaggedIndex {
+  const byCombo = index.get(activityId)?.get(date)
+  if (byCombo === undefined || !byCombo.has(comboKey)) return index
+  const next = new Map(index)
+  const byDate = new Map(index.get(activityId))
+  const combos = new Map(byCombo)
+  combos.delete(comboKey)
+  if (combos.size === 0) byDate.delete(date)
+  else byDate.set(date, combos)
+  if (byDate.size === 0) next.delete(activityId)
+  else next.set(activityId, byDate)
+  return next
+}
+
+/** Removes every tagged entry of one Activity (delete cascade, Req 1.9). */
+export function deleteActivityTagged(index: TaggedIndex, activityId: string): TaggedIndex {
+  if (!index.has(activityId)) return index
+  const next = new Map(index)
+  next.delete(activityId)
+  return next
+}
+
+/** All tagged entries as a flat list (activity, date, comboKey order is not significant). */
+export function allTaggedValues(index: TaggedIndex): { entry: TaggedValue; comboKey: string }[] {
+  const out: { entry: TaggedValue; comboKey: string }[] = []
+  for (const byDate of index.values())
+    for (const byCombo of byDate.values())
+      for (const [comboKey, entry] of byCombo) out.push({ entry, comboKey })
+  return out
 }
 
 /**
@@ -186,14 +313,41 @@ function sameGoalVersions(a: readonly GoalVersion[], b: readonly GoalVersion[]):
 
 /**
  * Equivalence used by the round-trip properties (Req 9.3, 12.17): the same
- * Activities (all fields, same order), the same stored Daily_Value entries, and
- * the same set of Goal_Versions. Daily_Values are compared exactly because they
+ * Activities (all fields, same order), the same stored Daily_Value entries, the same
+ * tagged entries (tags compared in order) and Tag_Ratios, and the same set of Goal_Versions. Daily_Values are compared exactly because they
  * are integer milli units.
  */
+function sameTagged(a: TaggedIndex, b: TaggedIndex): boolean {
+  const listA = allTaggedValues(a)
+  const listB = allTaggedValues(b)
+  if (listA.length !== listB.length) return false
+  for (const { entry, comboKey } of listA) {
+    const other = b.get(entry.activityId)?.get(entry.date)?.get(comboKey)
+    if (other === undefined || other.value !== entry.value) return false
+    if (other.tags.length !== entry.tags.length) return false
+    if (other.tags.some((tag, i) => tag !== entry.tags[i])) return false
+  }
+  return true
+}
+
+function sameRatios(a: ReadonlyMap<string, TagRatio>, b: ReadonlyMap<string, TagRatio>): boolean {
+  if (a.size !== b.size) return false
+  for (const [key, ra] of a) {
+    const rb = b.get(key)
+    if (rb === undefined || rb.ratio !== ra.ratio || rb.label !== ra.label) return false
+  }
+  return true
+}
+
 export function datasetEquals(a: Dataset, b: Dataset): boolean {
   if (a.activities.length !== b.activities.length) return false
   for (let i = 0; i < a.activities.length; i += 1) {
     if (!activitiesEqual(a.activities[i], b.activities[i])) return false
   }
-  return sameValues(a.values, b.values) && sameGoalVersions(a.goalVersions, b.goalVersions)
+  return (
+    sameValues(a.values, b.values) &&
+    sameTagged(a.taggedValues, b.taggedValues) &&
+    sameRatios(a.tagRatios, b.tagRatios) &&
+    sameGoalVersions(a.goalVersions, b.goalVersions)
+  )
 }

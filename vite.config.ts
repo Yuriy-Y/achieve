@@ -52,7 +52,7 @@ export default defineConfig({
         scope: '.',
         display: 'standalone',
         background_color: '#ffffff',
-        theme_color: '#1f6feb',
+        theme_color: '#185e45',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },

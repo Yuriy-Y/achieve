@@ -13,7 +13,16 @@
  * (a later task) uses these helpers and the schema constants to read and write.
  */
 
-import type { Activity, Dataset, DailyValueIndex, GoalVersion } from '../domain/dataset'
+import type {
+  Activity,
+  Dataset,
+  DailyValueIndex,
+  GoalVersion,
+  TaggedValue,
+  TagRatio,
+} from '../domain/dataset'
+import { allTaggedValues } from '../domain/dataset'
+import { comboKey } from '../domain/tags'
 import type { GoalType, PeriodKey } from '../domain/calendar'
 import type { Milli } from '../domain/decimal'
 import type { RawDataset } from '../domain/datasetRules'
@@ -26,24 +35,35 @@ import type { RawDataset } from '../domain/datasetRules'
 export const DB_NAME = 'achievement-tracker'
 
 /** IndexedDB schema version (bumped only by additive, forward-only migrations). */
-export const DB_VERSION = 1
+export const DB_VERSION = 2
+/** `meta` schema versions that load accepts: 1 (previous release) and 2 (this one). */
+export const ACCEPTED_SCHEMA_VERSIONS: readonly number[] = [1, 2]
 
 /** Object store names. */
 export const STORE_META = 'meta'
 export const STORE_ACTIVITIES = 'activities'
 export const STORE_DAILY_VALUES = 'dailyValues'
 export const STORE_GOAL_VERSIONS = 'goalVersions'
-
+/** Added in database version 2 (tagged Daily_Entries and Tag_Ratios). */
+export const STORE_TAGGED_VALUES = 'taggedValues'
+export const STORE_TAG_RATIOS = 'tagRatios'
 /** All object stores, in creation order. */
 export const ALL_STORES = [
   STORE_META,
   STORE_ACTIVITIES,
   STORE_DAILY_VALUES,
   STORE_GOAL_VERSIONS,
+  STORE_TAGGED_VALUES,
+  STORE_TAG_RATIOS,
 ] as const
-
-/** The three data stores cleared and rewritten by a `replaceAll`/discard. */
-export const DATA_STORES = [STORE_ACTIVITIES, STORE_DAILY_VALUES, STORE_GOAL_VERSIONS] as const
+/** The five data stores cleared and rewritten by a `replaceAll`/discard. */
+export const DATA_STORES = [
+  STORE_ACTIVITIES,
+  STORE_DAILY_VALUES,
+  STORE_GOAL_VERSIONS,
+  STORE_TAGGED_VALUES,
+  STORE_TAG_RATIOS,
+] as const
 
 /** Key paths per store (compound keys enforce the one-per-key invariants I3). */
 export const KEY_PATHS = {
@@ -51,6 +71,8 @@ export const KEY_PATHS = {
   [STORE_ACTIVITIES]: 'id',
   [STORE_DAILY_VALUES]: ['activityId', 'date'],
   [STORE_GOAL_VERSIONS]: ['activityId', 'goalType', 'startPeriod'],
+  [STORE_TAGGED_VALUES]: ['activityId', 'date', 'comboKey'],
+  [STORE_TAG_RATIOS]: 'key',
 } as const
 
 /** The single `meta` record identifying the schema version. */
@@ -98,6 +120,25 @@ export interface GoalVersionRecord {
   value?: number
 }
 
+/** A tagged Daily_Entry as stored (database version 2). */
+export interface TaggedValueRecord {
+  activityId: string
+  date: string
+  /** Order-independent identity of the Tag_Combination (part of the key). */
+  comboKey: string
+  tags: string[]
+  /** Integer number of thousandths, may be negative. */
+  value: number
+}
+
+/** A global Tag_Ratio as stored; only ratios other than 1.000 are stored. */
+export interface TagRatioRecord {
+  key: string
+  label: string
+  /** Integer thousandths, 1..1_000_000. */
+  ratio: number
+}
+
 // ---------------------------------------------------------------------------
 // Dataset -> records
 // ---------------------------------------------------------------------------
@@ -142,11 +183,29 @@ function dailyValueRecords(values: DailyValueIndex): DailyValueRecord[] {
   return records
 }
 
+/** One tagged-entry record. */
+export function taggedValueToRecord(entry: TaggedValue): TaggedValueRecord {
+  return {
+    activityId: entry.activityId,
+    date: entry.date,
+    comboKey: comboKey(entry.tags),
+    tags: [...entry.tags],
+    value: entry.value,
+  }
+}
+
+/** One Tag_Ratio record. */
+export function tagRatioToRecord(ratio: TagRatio): TagRatioRecord {
+  return { key: ratio.key, label: ratio.label, ratio: ratio.ratio }
+}
+
 /** The records a `Dataset` maps to, grouped per object store. */
 export interface DatasetRecords {
   activities: ActivityRecord[]
   dailyValues: DailyValueRecord[]
   goalVersions: GoalVersionRecord[]
+  taggedValues: TaggedValueRecord[]
+  tagRatios: TagRatioRecord[]
 }
 
 /**
@@ -158,6 +217,8 @@ export function datasetToRecords(ds: Dataset): DatasetRecords {
     activities: ds.activities.map(activityToRecord),
     dailyValues: dailyValueRecords(ds.values),
     goalVersions: ds.goalVersions.map(goalVersionToRecord),
+    taggedValues: allTaggedValues(ds.taggedValues).map((x) => taggedValueToRecord(x.entry)),
+    tagRatios: [...ds.tagRatios.values()].map(tagRatioToRecord),
   }
 }
 
@@ -181,7 +242,9 @@ export function datasetToRecords(ds: Dataset): DatasetRecords {
  * place.
  */
 export { validateDatasetRules } from '../domain/datasetRules'
-export type { RawDataset, RuleViolation, ValueCodec } from '../domain/datasetRules'
+export type { RawDataset, RuleViolation, RuleOptions, ValueCodec } from '../domain/datasetRules'
+/** Rule options for records read from IndexedDB: signed values, tagged stores optional. */
+export const LOAD_RULE_OPTIONS = { allowNegative: true, tagged: 'optional' } as const
 
 /**
  * Assemble a `RawDataset` from the three stores' records for validation. The
@@ -192,8 +255,10 @@ export function toRawDataset(
   activities: unknown[],
   dailyValues: unknown[],
   goalVersions: unknown[],
+  taggedValues: unknown[] = [],
+  tagRatios: unknown[] = [],
 ): RawDataset {
-  return { activities, dailyValues, goalVersions }
+  return { activities, dailyValues, goalVersions, taggedValues, tagRatios }
 }
 
 /** The milli encoding used by this module's records (load/commit codec). */

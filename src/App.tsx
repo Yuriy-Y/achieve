@@ -67,7 +67,10 @@ import {
 } from './state/persistStorage'
 import { useAppUpdate } from './pwa/useAppUpdate'
 
+import { useAnalyserRevealed } from './state/useAnalyserRevealed'
 import { ActivityList } from './ui/ActivityList'
+import { AnalyserView } from './ui/AnalyserView'
+import { AppTitle } from './ui/AppTitle'
 import { ActivityForm } from './ui/ActivityForm'
 import { BackupPanel } from './ui/BackupPanel'
 import { ChartView } from './ui/ChartView'
@@ -86,6 +89,9 @@ import {
 } from './ui/messages'
 import { useNumberDisplay } from './state/useNumberDisplay'
 
+/** Live-region message announced when the Analyser is revealed (Req 16.1). */
+const ANALYSER_REVEALED_MESSAGE = 'Analyser is now available.'
+
 /**
  * The navigation state (design: "state-based navigation between list and
  * activity detail", no router). `list` is the Activity list; a detail `view`
@@ -98,7 +104,7 @@ type DetailView =
   | { kind: 'chart'; activityId: string }
   | { kind: 'goals'; activityId: string }
   | { kind: 'rename'; activityId: string }
-
+  | { kind: 'analyser' }
 /**
  * Compose and provide the store, then render the application body. The store is
  * created once (memoised) with the real IndexedDB, clock and id factory and
@@ -140,7 +146,9 @@ function AppBody(): ReactElement {
   const [view, setView] = useState<DetailView>({ kind: 'list' })
   const [creating, setCreating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-
+  // The Analyser is hidden until the title gesture reveals it (Req 16.1).
+  const [analyserRevealed, setAnalyserRevealed] = useAnalyserRevealed()
+  const [revealMessage, setRevealMessage] = useState<string | null>(null)
   // One-time backup notice (Req 10.14). Shown through Notifications when
   // persistent storage is denied or unsupported and the notice is new.
   const [backupNotice, setBackupNotice] = useState(false)
@@ -174,12 +182,19 @@ function AppBody(): ReactElement {
   // takes precedence (commit/discard/recovery), otherwise the one-time backup
   // notice (Req 1.10, 3.8, 8.13, 9.7, 9.13, 10.14, 12.16).
   const noticeMessage =
-    noticeToMessage(snapshot.notice) ?? (backupNotice ? STORAGE_NOT_PERSISTENT_MESSAGE : null)
+    noticeToMessage(snapshot.notice) ??
+    revealMessage ??
+    (backupNotice ? STORAGE_NOT_PERSISTENT_MESSAGE : null)
 
   return (
     <div className="app-shell">
       <header className="app-header">
-        <h1 className="app-title">Achievement Tracker</h1>
+        <AppTitle
+          onReveal={() => {
+            setAnalyserRevealed(true)
+            setRevealMessage(ANALYSER_REVEALED_MESSAGE)
+          }}
+        />
       </header>
 
       <main className="app-main" aria-live="off">
@@ -195,6 +210,12 @@ function AppBody(): ReactElement {
             setCreating={setCreating}
             deletingId={deletingId}
             setDeletingId={setDeletingId}
+            analyserRevealed={analyserRevealed}
+            onHideAnalyser={() => {
+              setAnalyserRevealed(false)
+              setRevealMessage(null)
+              setView({ kind: 'list' })
+            }}
           />
         )}
       </main>
@@ -225,8 +246,9 @@ interface MainScreensProps {
   setCreating: (creating: boolean) => void
   deletingId: string | null
   setDeletingId: (id: string | null) => void
+  analyserRevealed: boolean
+  onHideAnalyser: () => void
 }
-
 /**
  * The normal-mode screens: the Activity list, the per-Activity detail views
  * (chart / goals / rename), the create form overlay, and the delete
@@ -239,6 +261,8 @@ function MainScreens({
   setCreating,
   deletingId,
   setDeletingId,
+  analyserRevealed,
+  onHideAnalyser,
 }: MainScreensProps): ReactElement {
   const snapshot = useTrackerSnapshot()
   const { deleteActivity, setGoal, removeGoal } = useTrackerActions()
@@ -253,11 +277,22 @@ function MainScreens({
   // (e.g. deleted in another tab), fall back to the list so no stale view
   // lingers (design Error Handling: "close the stale view, return to list").
   const detailActivity =
-    view.kind === 'list' ? null : findActivity(activities, view.activityId)
+    view.kind === 'list' || view.kind === 'analyser' ? null : findActivity(activities, view.activityId)
 
-  if (view.kind !== 'list' && detailActivity === null) {
+  if (view.kind !== 'list' && view.kind !== 'analyser' && detailActivity === null) {
     // The target vanished; drop back to the list on the next render.
-    return <ListScreen onCreate={() => setCreating(true)} onNavigate={setView} onDelete={setDeletingId} creating={creating} setCreating={setCreating} deletingId={deletingId} setDeletingId={setDeletingId} />
+    return (
+      <ListScreen
+        onCreate={() => setCreating(true)}
+        onNavigate={setView}
+        onDelete={setDeletingId}
+        creating={creating}
+        setCreating={setCreating}
+        deletingId={deletingId}
+        setDeletingId={setDeletingId}
+        analyserRevealed={analyserRevealed}
+      />
+    )
   }
 
   return (
@@ -271,7 +306,11 @@ function MainScreens({
           setCreating={setCreating}
           deletingId={deletingId}
           setDeletingId={setDeletingId}
+          analyserRevealed={analyserRevealed}
         />
+      ) : null}
+      {view.kind === 'analyser' ? (
+        <AnalyserView onClose={backToList} onHide={onHideAnalyser} />
       ) : null}
 
       {view.kind === 'chart' && detailActivity !== null ? (
@@ -335,8 +374,8 @@ interface ListScreenProps {
   setCreating: (creating: boolean) => void
   deletingId: string | null
   setDeletingId: (id: string | null) => void
+  analyserRevealed: boolean
 }
-
 /**
  * The Activity list screen plus the create-form overlay. The list delegates the
  * per-row actions back here, which map to navigation or the delete overlay.
@@ -347,6 +386,7 @@ function ListScreen({
   onDelete,
   creating,
   setCreating,
+  analyserRevealed,
 }: ListScreenProps): ReactElement {
   return (
     <>
@@ -358,6 +398,15 @@ function ListScreen({
         onDelete={onDelete}
       />
 
+      {analyserRevealed ? (
+        <button
+          type="button"
+          className="analyser-open"
+          onClick={() => onNavigate({ kind: 'analyser' })}
+        >
+          Analyser
+        </button>
+      ) : null}
       {/* Backup section always reachable in normal mode: export and import of
           the Data_Set (Req 12.1-12.6). BackupPanel is self-contained. */}
       <BackupPanel />
